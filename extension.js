@@ -56,9 +56,9 @@ class Indicator extends PanelMenu.Button {
         // Separador
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Item para alternar modo Ctrl
+        // Item para alternar modo Ctrl/Meta
         this.ctrlModeItem = new PopupMenu.PopupSwitchMenuItem(
-            _('Requerer Ctrl para Agrupar'), 
+            _('Requerer Ctrl/Meta para Agrupar'), 
             this.tabManager.requireCtrl
         );
         this.ctrlModeItem.connect('toggled', (item) => {
@@ -304,14 +304,23 @@ class WindowGroup {
 
 // Classe principal para gerenciar o sistema de abas
 class TabManager {
-    constructor() {
+    constructor(extension) {
+        this.extension = extension;
         this.groups = new Set();
         this.windowGroups = new Map(); // window -> group
         this._signals = [];
         this._dropIndicator = null;
         this._draggedWindow = null;
-        this.requireCtrl = false; // Configuração para requerer Ctrl
-        this._isCtrlPressed = false; // Estado atual do Ctrl
+        this._isCtrlPressed = false; // Estado atual do Ctrl/Meta
+        
+        // Carregar configurações
+        this._settings = extension.getSettings();
+        this.requireCtrl = this._settings.get_boolean('require-ctrl');
+        
+        // Conectar mudanças de configuração
+        this._settingsId = this._settings.connect('changed::require-ctrl', () => {
+            this.requireCtrl = this._settings.get_boolean('require-ctrl');
+        });
     }
 
     enable() {
@@ -340,18 +349,28 @@ class TabManager {
             })
         );
 
-        // Conectar eventos de teclado para detectar Ctrl
+        // Conectar eventos de teclado para detectar Ctrl e Meta
         this._keyPressId = global.stage.connect('key-press-event', (actor, event) => {
-            if (event.get_key_symbol() === Clutter.KEY_Control_L ||
-                event.get_key_symbol() === Clutter.KEY_Control_R) {
+            const keySymbol = event.get_key_symbol();
+            if (keySymbol === Clutter.KEY_Control_L ||
+                keySymbol === Clutter.KEY_Control_R ||
+                keySymbol === Clutter.KEY_Meta_L ||
+                keySymbol === Clutter.KEY_Meta_R ||
+                keySymbol === Clutter.KEY_Super_L ||
+                keySymbol === Clutter.KEY_Super_R) {
                 this._isCtrlPressed = true;
             }
             return Clutter.EVENT_PROPAGATE;
         });
-
+        
         this._keyReleaseId = global.stage.connect('key-release-event', (actor, event) => {
-            if (event.get_key_symbol() === Clutter.KEY_Control_L ||
-                event.get_key_symbol() === Clutter.KEY_Control_R) {
+            const keySymbol = event.get_key_symbol();
+            if (keySymbol === Clutter.KEY_Control_L ||
+                keySymbol === Clutter.KEY_Control_R ||
+                keySymbol === Clutter.KEY_Meta_L ||
+                keySymbol === Clutter.KEY_Meta_R ||
+                keySymbol === Clutter.KEY_Super_L ||
+                keySymbol === Clutter.KEY_Super_R) {
                 this._isCtrlPressed = false;
                 this._hideDropIndicator();
             }
@@ -368,6 +387,21 @@ class TabManager {
         });
 
         this._createDropIndicator();
+        
+        // Método alternativo: usar um timer para verificar estado das teclas
+        this._checkModifierTimer = setInterval(() => {
+            const [x, y, mask] = global.get_pointer();
+            const hasCtrlMod = (mask & Clutter.ModifierType.CONTROL_MASK) !== 0;
+            const hasMetaMod = (mask & Clutter.ModifierType.META_MASK) !== 0;
+            const hasSuperMod = (mask & Clutter.ModifierType.SUPER_MASK) !== 0;
+            
+            // Considerar pressionado se qualquer um dos modificadores estiver ativo
+            const hasModifier = hasCtrlMod || hasMetaMod || hasSuperMod;
+            
+            if (hasModifier !== this._isCtrlPressed) {
+                this._isCtrlPressed = hasModifier;
+            }
+        }, 100); // Verificar a cada 100ms
     }
 
     disable() {
@@ -389,6 +423,18 @@ class TabManager {
             this._keyReleaseId = null;
         }
 
+        // Limpar timer de verificação de modificadores
+        if (this._checkModifierTimer) {
+            clearInterval(this._checkModifierTimer);
+            this._checkModifierTimer = null;
+        }
+
+        // Desconectar configurações
+        if (this._settingsId) {
+            this._settings.disconnect(this._settingsId);
+            this._settingsId = null;
+        }
+
         this._destroyDropIndicator();
     }
 
@@ -405,9 +451,7 @@ class TabManager {
     _onWindowMoved(window) {
         if (this._draggedWindow !== window) return;
 
-        // Verificar se precisa do Ctrl e se está pressionado
         const shouldShowIndicator = !this.requireCtrl || this._isCtrlPressed;
-        
         if (shouldShowIndicator) {
             const targetWindow = this._getWindowUnder(window);
             if (targetWindow && targetWindow !== window &&
@@ -422,7 +466,7 @@ class TabManager {
     }
 
     _onWindowDropped(window) {
-        // Verificar se precisa do Ctrl e se está pressionado
+        // Verificar se precisa do Ctrl/Meta e se está pressionado
         const shouldGroup = !this.requireCtrl || this._isCtrlPressed;
         
         if (shouldGroup) {
@@ -559,7 +603,10 @@ class TabManager {
 
     setRequireCtrl(value) {
         this.requireCtrl = value;
-        // Esconder indicador se mudou para modo Ctrl e Ctrl não está pressionado
+        // Salvar nas configurações
+        this._settings.set_boolean('require-ctrl', value);
+        
+        // Esconder indicador se mudou para modo Ctrl/Meta e nenhuma tecla está pressionada
         if (this.requireCtrl && !this._isCtrlPressed) {
             this._hideDropIndicator();
         }
@@ -568,7 +615,7 @@ class TabManager {
 
 export default class AppGroupTabsExtension extends Extension {
     enable() {
-        this._tabManager = new TabManager();
+        this._tabManager = new TabManager(this);
         this._tabManager.enable();
         
         // Adicionar indicador na barra superior

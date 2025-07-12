@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.app-group-tabs" path="/org/gnome/shell/extensions/app-group-tabs/">
+    <key name="require-ctrl" type="b">
+      <default>false</default>
+      <summary>Require Ctrl or Meta to group windows</summary>
+      <description>When enabled, windows will only be grouped when Ctrl or Meta (Super) is held while dragging</description>
+    </key>
+  </schema>
+</schemalist>

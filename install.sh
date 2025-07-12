@@ -79,8 +79,25 @@ if [ "$CURRENT_DIR" != "$EXTENSION_DIR" ]; then
     if [ -f "$CURRENT_DIR/README.md" ]; then
         cp "$CURRENT_DIR/README.md" "$EXTENSION_DIR/"
     fi
+    
+    # Copiar esquemas de configuração se existirem
+    if [ -d "$CURRENT_DIR/schemas" ]; then
+        print_status "Copiando esquemas de configuração..."
+        cp -r "$CURRENT_DIR/schemas" "$EXTENSION_DIR/"
+    fi
 else
     print_status "Extensão já está no diretório correto"
+fi
+
+# Compilar esquemas GSettings se existirem
+if [ -d "$EXTENSION_DIR/schemas" ]; then
+    print_status "Compilando esquemas de configuração..."
+    if glib-compile-schemas "$EXTENSION_DIR/schemas/"; then
+        print_success "Esquemas compilados com sucesso"
+    else
+        print_error "Erro ao compilar esquemas"
+        exit 1
+    fi
 fi
 
 print_success "Arquivos da extensão instalados!"
