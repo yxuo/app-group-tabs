@@ -6,5 +6,10 @@
       <summary>Require Ctrl or Meta to group windows</summary>
       <description>When enabled, windows will only be grouped when Ctrl or Meta (Super) is held while dragging</description>
     </key>
+    <key name="start-with-groups" type="b">
+      <default>true</default>
+      <summary>Start windows with individual groups</summary>
+      <description>When enabled, each window automatically gets its own tab bar. When disabled, windows start ungrouped until manually grouped.</description>
+    </key>
   </schema>
 </schemalist>

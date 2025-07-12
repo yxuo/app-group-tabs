@@ -69,6 +69,19 @@ class Indicator extends PanelMenu.Button {
         // Separador
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        // Item para alternar grupos automáticos
+        this.startGroupsItem = new PopupMenu.PopupSwitchMenuItem(
+            _('Iniciar Janelas com Grupos'), 
+            this.tabManager.startWithGroups
+        );
+        this.startGroupsItem.connect('toggled', (item) => {
+            this.tabManager.setStartWithGroups(item.state);
+        });
+        this.menu.addMenuItem(this.startGroupsItem);
+
+        // Separador
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         // Item para dissolver todos os grupos
         let dissolveAllItem = new PopupMenu.PopupMenuItem(_('Dissolver Todos os Grupos'));
         dissolveAllItem.connect('activate', () => {
@@ -316,10 +329,14 @@ class TabManager {
         // Carregar configurações
         this._settings = extension.getSettings();
         this.requireCtrl = this._settings.get_boolean('require-ctrl');
+        this.startWithGroups = this._settings.get_boolean('start-with-groups');
         
         // Conectar mudanças de configuração
         this._settingsId = this._settings.connect('changed::require-ctrl', () => {
             this.requireCtrl = this._settings.get_boolean('require-ctrl');
+        });
+        this._startGroupsSettingsId = this._settings.connect('changed::start-with-groups', () => {
+            this.startWithGroups = this._settings.get_boolean('start-with-groups');
         });
     }
 
@@ -377,14 +394,24 @@ class TabManager {
             return Clutter.EVENT_PROPAGATE;
         });
 
-        // Processar janelas existentes e criar grupos individuais
-        global.get_window_actors().forEach(actor => {
-            const window = actor.get_meta_window();
-            if (window && window.window_type === Meta.WindowType.NORMAL) {
-                this._onWindowCreated(window);
-                this._createIndividualGroup(window);
-            }
-        });
+        // Processar janelas existentes e criar grupos individuais se configurado
+        if (this.startWithGroups) {
+            global.get_window_actors().forEach(actor => {
+                const window = actor.get_meta_window();
+                if (window && window.window_type === Meta.WindowType.NORMAL) {
+                    this._onWindowCreated(window);
+                    this._createIndividualGroup(window);
+                }
+            });
+        } else {
+            // Apenas conectar eventos, sem criar grupos
+            global.get_window_actors().forEach(actor => {
+                const window = actor.get_meta_window();
+                if (window && window.window_type === Meta.WindowType.NORMAL) {
+                    this._onWindowCreated(window);
+                }
+            });
+        }
 
         this._createDropIndicator();
         
@@ -434,6 +461,11 @@ class TabManager {
             this._settings.disconnect(this._settingsId);
             this._settingsId = null;
         }
+        
+        if (this._startGroupsSettingsId) {
+            this._settings.disconnect(this._startGroupsSettingsId);
+            this._startGroupsSettingsId = null;
+        }
 
         this._destroyDropIndicator();
     }
@@ -441,8 +473,10 @@ class TabManager {
     _onWindowCreated(window) {
         if (window.window_type !== Meta.WindowType.NORMAL) return;
 
-        // Criar grupo individual para a nova janela
-        this._createIndividualGroup(window);
+        // Criar grupo individual apenas se a configuração estiver habilitada
+        if (this.startWithGroups) {
+            this._createIndividualGroup(window);
+        }
 
         // Conectar evento de movimento para atualizar indicador
         window.connect('position-changed', () => this._onWindowMoved(window));
@@ -610,6 +644,25 @@ class TabManager {
         if (this.requireCtrl && !this._isCtrlPressed) {
             this._hideDropIndicator();
         }
+    }
+
+    setStartWithGroups(value) {
+        this.startWithGroups = value;
+        // Salvar nas configurações
+        this._settings.set_boolean('start-with-groups', value);
+        
+        // Se habilitou grupos automáticos, criar grupos para janelas sem grupo
+        if (this.startWithGroups) {
+            global.get_window_actors().forEach(actor => {
+                const window = actor.get_meta_window();
+                if (window && 
+                    window.window_type === Meta.WindowType.NORMAL && 
+                    !this.windowGroups.has(window)) {
+                    this._createIndividualGroup(window);
+                }
+            });
+        }
+        // Se desabilitou, não remove grupos existentes - apenas afeta novas janelas
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "App Group Tabs",
-  "description": "Agrupe aplicativos usando abas. Cada janela recebe automaticamente uma barra de abas. Arraste janelas sobre outras para criar grupos. Use Ctrl ou Meta+arrastar para agrupar quando habilitado.",
+  "description": "Agrupe aplicativos usando abas. Configure se janelas começam com grupos automáticos ou sem grupos. Arraste janelas sobre outras para criar grupos. Use Ctrl ou Meta+arrastar para agrupar quando habilitado.",
   "uuid": "app-group-tabs@yxuo.github.io",
   "shell-version": [
     "45",
