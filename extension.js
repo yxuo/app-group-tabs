@@ -118,16 +118,23 @@ const TabBar = GObject.registerClass(
             this._updateTabStyles();
         }
 
-        updatePosition() {
-            if (this.group.windows.length === 0) return;
-
-            // Posicionar a barra acima da janela ativa ou primeira janela
-            const activeWindow = this._activeTab || this.group.windows[0];
-            const frame = activeWindow.get_frame_rect();
-
-            this.set_position(frame.x, frame.y - 40);
-            this.set_size(frame.width, 40);
+    updatePosition() {
+        if (this.group.windows.length === 0) return;
+        
+        // Encontrar janelas não minimizadas
+        const visibleWindows = this.group.windows.filter(window => !window.minimized);
+        if (visibleWindows.length === 0) return;
+        
+        // Posicionar a barra acima da janela ativa não minimizada ou primeira janela visível
+        let activeWindow = this._activeTab;
+        if (!activeWindow || activeWindow.minimized) {
+            activeWindow = visibleWindows[0];
         }
+        
+        const frame = activeWindow.get_frame_rect();
+        this.set_position(frame.x, frame.y - 40);
+        this.set_size(frame.width, 40);
+    }
     });
 
 // Classe para gerenciar um grupo de janelas com abas
@@ -152,7 +159,8 @@ class WindowGroup {
             window.connect('position-changed', () => this._onWindowMoved(window)),
             window.connect('size-changed', () => this._onWindowResized(window)),
             window.connect('focus', () => this._onWindowFocused(window)),
-            window.connect('unmanaging', () => this.removeWindow(window))
+            window.connect('unmanaging', () => this.removeWindow(window)),
+            window.connect('notify::minimized', () => this._onWindowMinimizedChanged(window))
         ];
 
         this._signals.push(...signals.map(id => ({ window, id })));
@@ -187,15 +195,19 @@ class WindowGroup {
     }
 
     _onWindowMoved(window) {
-        if (window === this.tabBar._activeTab ||
-            (!this.tabBar._activeTab && this.windows[0] === window)) {
+        // Só atualizar posição se a janela não estiver minimizada
+        if (!window.minimized && 
+            (window === this.tabBar._activeTab || 
+             (!this.tabBar._activeTab && this.windows[0] === window))) {
             this.tabBar.updatePosition();
         }
     }
 
     _onWindowResized(window) {
-        if (window === this.tabBar._activeTab ||
-            (!this.tabBar._activeTab && this.windows[0] === window)) {
+        // Só atualizar posição se a janela não estiver minimizada
+        if (!window.minimized && 
+            (window === this.tabBar._activeTab || 
+             (!this.tabBar._activeTab && this.windows[0] === window))) {
             this.tabBar.updatePosition();
         }
     }
@@ -205,9 +217,17 @@ class WindowGroup {
         this.tabBar.updatePosition();
     }
 
+    _onWindowMinimizedChanged(window) {
+        this._updateTabBarVisibility();
+        this.tabBar.updatePosition();
+    }
+
     _updateTabBarVisibility() {
-        // Sempre mostrar a barra de abas (simplificado para desenvolvimento)
-        this.tabBar.visible = this.windows.length > 0;
+        // Verificar se há pelo menos uma janela não minimizada no grupo
+        const hasVisibleWindow = this.windows.some(window => !window.minimized);
+        
+        // Só mostrar a barra se houver janelas e pelo menos uma não estiver minimizada
+        this.tabBar.visible = this.windows.length > 0 && hasVisibleWindow;
     }
 
     dissolve() {

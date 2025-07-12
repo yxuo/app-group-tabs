@@ -32,10 +32,12 @@ Uma extensão GNOME Shell que permite agrupar janelas de aplicativos usando um s
 ## Comportamento
 
 - Todas as janelas automaticamente recebem uma barra de abas (modo de desenvolvimento simplificado)
-- A barra de abas segue a janela ativa do grupo
+- A barra de abas só aparece quando há pelo menos uma janela não minimizada no grupo
+- A barra de abas segue a janela ativa não minimizada do grupo
 - Quando uma janela é fechada, ela é automaticamente removida do grupo
-- Grupos com apenas uma janela mostram uma barra com uma única aba
+- Grupos com apenas uma janela mostram uma barra com uma única aba (se não estiver minimizada)
 - O agrupamento funciona arrastando qualquer janela sobre outra (sem necessidade de Ctrl)
+- Janelas minimizadas fazem a barra de abas desaparecer até que alguma janela do grupo seja desmimizada
 
 ## Instalação
 
