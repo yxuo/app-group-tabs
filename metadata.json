@@ -1,0 +1,8 @@
+{
+  "name": "App Group Tabs",
+  "description": "Group apps and use tabs above.",
+  "uuid": "app-group-tabs@yxuo.github.io",
+  "shell-version": [
+    "46"
+  ]
+}
