@@ -9,6 +9,7 @@ Uma extensão GNOME Shell que permite agrupar janelas de aplicativos usando um s
 - **Indicação visual**: Feedback visual mostra quando uma janela pode ser solta para criar um grupo
 - **Navegação entre abas**: Clique nas abas para alternar entre as janelas do grupo
 - **Dissolução de grupos**: Botão para dissolver grupos e retornar as janelas ao estado individual
+- **Indicador na barra superior**: Ícone na barra superior com menu para gerenciar grupos
 
 ## Como usar
 
@@ -29,6 +30,12 @@ Uma extensão GNOME Shell que permite agrupar janelas de aplicativos usando um s
    - Clique no botão "X" na extremidade direita da barra de abas
    - Todas as janelas retornarão ao estado individual com suas próprias barras
 
+5. **Usar o indicador da barra superior**:
+   - Clique no ícone de grade na barra superior para acessar o menu
+   - "Grupos Ativos": Mostra quantos grupos e janelas estão ativos
+   - "Requerer Ctrl para Agrupar": Liga/desliga o modo que exige Ctrl pressionado
+   - "Dissolver Todos os Grupos": Remove todos os agrupamentos de uma vez
+
 ## Comportamento
 
 - Todas as janelas automaticamente recebem uma barra de abas (modo de desenvolvimento simplificado)
@@ -36,7 +43,7 @@ Uma extensão GNOME Shell que permite agrupar janelas de aplicativos usando um s
 - A barra de abas segue a janela ativa não minimizada do grupo
 - Quando uma janela é fechada, ela é automaticamente removida do grupo
 - Grupos com apenas uma janela mostram uma barra com uma única aba (se não estiver minimizada)
-- O agrupamento funciona arrastando qualquer janela sobre outra (sem necessidade de Ctrl)
+- **Modo de agrupamento configurável**: Por padrão, arraste qualquer janela sobre outra para criar grupos. Ative "Requerer Ctrl para Agrupar" no menu para exigir Ctrl pressionado
 - Janelas minimizadas fazem a barra de abas desaparecer até que alguma janela do grupo seja desmimizada
 
 ## Instalação

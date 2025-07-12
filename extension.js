@@ -26,7 +26,58 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+// Indicador na barra superior
+const Indicator = GObject.registerClass(
+class Indicator extends PanelMenu.Button {
+    _init(tabManager) {
+        super._init(0.0, _('App Group Tabs'));
+
+        this.tabManager = tabManager;
+
+        this.add_child(new St.Icon({
+            icon_name: 'view-grid-symbolic',
+            style_class: 'system-status-icon',
+        }));
+
+        // Item para mostrar status dos grupos
+        let statusItem = new PopupMenu.PopupMenuItem(_('Grupos Ativos'));
+        statusItem.connect('activate', () => {
+            const groupCount = this.tabManager.groups.size;
+            const windowCount = this.tabManager.windowGroups.size;
+            Main.notify(_(`App Group Tabs`), 
+                       _(`${groupCount} grupos ativos com ${windowCount} janelas`));
+        });
+        this.menu.addMenuItem(statusItem);
+
+        // Separador
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Item para alternar modo Ctrl
+        this.ctrlModeItem = new PopupMenu.PopupSwitchMenuItem(
+            _('Requerer Ctrl para Agrupar'), 
+            this.tabManager.requireCtrl
+        );
+        this.ctrlModeItem.connect('toggled', (item) => {
+            this.tabManager.setRequireCtrl(item.state);
+        });
+        this.menu.addMenuItem(this.ctrlModeItem);
+
+        // Separador
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Item para dissolver todos os grupos
+        let dissolveAllItem = new PopupMenu.PopupMenuItem(_('Dissolver Todos os Grupos'));
+        dissolveAllItem.connect('activate', () => {
+            this.tabManager.dissolveAllGroups();
+            Main.notify(_('App Group Tabs'), _('Todos os grupos foram dissolvidos'));
+        });
+        this.menu.addMenuItem(dissolveAllItem);
+    }
+});
 
 // Classe para gerenciar uma barra de abas
 const TabBar = GObject.registerClass(
@@ -259,6 +310,8 @@ class TabManager {
         this._signals = [];
         this._dropIndicator = null;
         this._draggedWindow = null;
+        this.requireCtrl = false; // Configuração para requerer Ctrl
+        this._isCtrlPressed = false; // Estado atual do Ctrl
     }
 
     enable() {
@@ -287,6 +340,24 @@ class TabManager {
             })
         );
 
+        // Conectar eventos de teclado para detectar Ctrl
+        this._keyPressId = global.stage.connect('key-press-event', (actor, event) => {
+            if (event.get_key_symbol() === Clutter.KEY_Control_L ||
+                event.get_key_symbol() === Clutter.KEY_Control_R) {
+                this._isCtrlPressed = true;
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        this._keyReleaseId = global.stage.connect('key-release-event', (actor, event) => {
+            if (event.get_key_symbol() === Clutter.KEY_Control_L ||
+                event.get_key_symbol() === Clutter.KEY_Control_R) {
+                this._isCtrlPressed = false;
+                this._hideDropIndicator();
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
+
         // Processar janelas existentes e criar grupos individuais
         global.get_window_actors().forEach(actor => {
             const window = actor.get_meta_window();
@@ -307,6 +378,17 @@ class TabManager {
         this._signals.forEach(id => global.display.disconnect(id));
         this._signals = [];
 
+        // Desconectar eventos de teclado
+        if (this._keyPressId) {
+            global.stage.disconnect(this._keyPressId);
+            this._keyPressId = null;
+        }
+
+        if (this._keyReleaseId) {
+            global.stage.disconnect(this._keyReleaseId);
+            this._keyReleaseId = null;
+        }
+
         this._destroyDropIndicator();
     }
 
@@ -323,20 +405,32 @@ class TabManager {
     _onWindowMoved(window) {
         if (this._draggedWindow !== window) return;
 
-        const targetWindow = this._getWindowUnder(window);
-        if (targetWindow && targetWindow !== window &&
-            !this._areInSameGroup(window, targetWindow)) {
-            this._showDropIndicator(targetWindow);
+        // Verificar se precisa do Ctrl e se está pressionado
+        const shouldShowIndicator = !this.requireCtrl || this._isCtrlPressed;
+        
+        if (shouldShowIndicator) {
+            const targetWindow = this._getWindowUnder(window);
+            if (targetWindow && targetWindow !== window &&
+                !this._areInSameGroup(window, targetWindow)) {
+                this._showDropIndicator(targetWindow);
+            } else {
+                this._hideDropIndicator();
+            }
         } else {
             this._hideDropIndicator();
         }
     }
 
     _onWindowDropped(window) {
-        const targetWindow = this._getWindowUnder(window);
-        if (targetWindow && targetWindow !== window &&
-            !this._areInSameGroup(window, targetWindow)) {
-            this._groupWindows(window, targetWindow);
+        // Verificar se precisa do Ctrl e se está pressionado
+        const shouldGroup = !this.requireCtrl || this._isCtrlPressed;
+        
+        if (shouldGroup) {
+            const targetWindow = this._getWindowUnder(window);
+            if (targetWindow && targetWindow !== window &&
+                !this._areInSameGroup(window, targetWindow)) {
+                this._groupWindows(window, targetWindow);
+            }
         }
 
         this._hideDropIndicator();
@@ -454,18 +548,43 @@ class TabManager {
         newGroup.addWindow(window);
         this.windowGroups.set(window, newGroup);
     }
+
+    dissolveAllGroups() {
+        // Criar uma cópia do Set para evitar modificação durante iteração
+        const groupsToDissolve = Array.from(this.groups);
+        groupsToDissolve.forEach(group => {
+            group.dissolve();
+        });
+    }
+
+    setRequireCtrl(value) {
+        this.requireCtrl = value;
+        // Esconder indicador se mudou para modo Ctrl e Ctrl não está pressionado
+        if (this.requireCtrl && !this._isCtrlPressed) {
+            this._hideDropIndicator();
+        }
+    }
 }
 
 export default class AppGroupTabsExtension extends Extension {
     enable() {
         this._tabManager = new TabManager();
         this._tabManager.enable();
+        
+        // Adicionar indicador na barra superior
+        this._indicator = new Indicator(this._tabManager);
+        Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 
     disable() {
         if (this._tabManager) {
             this._tabManager.disable();
             this._tabManager = null;
+        }
+        
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
         }
     }
 }
