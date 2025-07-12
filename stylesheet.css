@@ -1,1 +1,111 @@
-/* Add your custom extension styling here */
+/* App Group Tabs - Estilos da extensão */
+
+/* Barra de abas */
+.tab-bar {
+    background-color: rgba(40, 40, 40, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px 6px 0px 0px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    padding: 0;
+    spacing: 0;
+}
+
+/* Container das abas */
+.tab-container {
+    spacing: 1px;
+    padding: 2px;
+}
+
+/* Aba individual */
+.tab {
+    background-color: rgba(60, 60, 60, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    padding: 8px 16px;
+    margin: 2px 1px;
+    min-width: 120px;
+    transition-duration: 200ms;
+}
+
+.tab:hover {
+    background-color: rgba(80, 80, 80, 0.9);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Aba ativa */
+.tab.active {
+    background-color: rgba(53, 132, 228, 0.9);
+    border-color: rgba(53, 132, 228, 1);
+    color: white;
+}
+
+.tab.active:hover {
+    background-color: rgba(53, 132, 228, 1);
+}
+
+/* Texto da aba */
+.tab StLabel {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    font-weight: normal;
+}
+
+.tab.active StLabel {
+    color: white;
+    font-weight: bold;
+}
+
+/* Botão de fechar grupo */
+.tab-close-button {
+    background-color: rgba(80, 80, 80, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    padding: 8px;
+    margin: 2px 2px 2px 4px;
+    min-width: 24px;
+    min-height: 24px;
+}
+
+.tab-close-button:hover {
+    background-color: rgba(224, 108, 117, 0.9);
+    border-color: rgba(224, 108, 117, 1);
+}
+
+.tab-close-button StIcon {
+    color: rgba(255, 255, 255, 0.8);
+    icon-size: 14px;
+}
+
+.tab-close-button:hover StIcon {
+    color: white;
+}
+
+/* Indicador de drop */
+.drop-indicator {
+    background-color: rgba(53, 132, 228, 0.3);
+    border: 3px solid rgba(53, 132, 228, 0.8);
+    border-radius: 8px;
+    animation: drop-indicator-pulse 1s ease-in-out infinite alternate;
+}
+
+/* Animação de pulsação para o indicador */
+@keyframes drop-indicator-pulse {
+    from {
+        background-color: rgba(53, 132, 228, 0.2);
+        border-color: rgba(53, 132, 228, 0.6);
+    }
+
+    to {
+        background-color: rgba(53, 132, 228, 0.4);
+        border-color: rgba(53, 132, 228, 1);
+    }
+}
+
+/* Efeitos de transição */
+.tab-bar,
+.tab,
+.tab-close-button {
+    transition-property: background-color, border-color, color;
+    transition-duration: 200ms;
+    transition-timing-function: ease-out;
+}

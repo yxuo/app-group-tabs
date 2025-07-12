@@ -1,8 +1,12 @@
 {
   "name": "App Group Tabs",
-  "description": "Group apps and use tabs above.",
+  "description": "Agrupe aplicativos usando abas. Cada janela recebe automaticamente uma barra de abas. Arraste janelas sobre outras para criar grupos.",
   "uuid": "app-group-tabs@yxuo.github.io",
   "shell-version": [
+    "45",
     "46"
-  ]
+  ],
+  "version": 1,
+  "url": "https://github.com/yxuo/app-group-tabs",
+  "settings-schema": "org.gnome.shell.extensions.app-group-tabs"
 }

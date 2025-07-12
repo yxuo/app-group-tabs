@@ -1,0 +1,73 @@
+# App Group Tabs
+
+Uma extensão GNOME Shell que permite agrupar janelas de aplicativos usando um sistema de abas.
+
+## Funcionalidades
+
+- **Barra de abas automática**: Cada janela automaticamente recebe uma barra de abas
+- **Agrupamento por arrastar e soltar**: Arraste uma janela sobre outra para criar um grupo
+- **Indicação visual**: Feedback visual mostra quando uma janela pode ser solta para criar um grupo
+- **Navegação entre abas**: Clique nas abas para alternar entre as janelas do grupo
+- **Dissolução de grupos**: Botão para dissolver grupos e retornar as janelas ao estado individual
+
+## Como usar
+
+1. **Visualizar abas individuais**:
+   - Cada janela automaticamente mostra uma barra de abas
+   - Para janelas individuais, a barra mostra apenas uma aba
+
+2. **Criar um grupo**:
+   - Arraste uma janela sobre outra janela
+   - Você verá um indicador visual azul ao redor da janela de destino
+   - Solte a janela para criar o grupo
+
+3. **Navegar entre abas**:
+   - Clique em qualquer aba na barra para ativar essa janela
+   - A aba ativa é destacada em azul
+
+4. **Dissolver um grupo**:
+   - Clique no botão "X" na extremidade direita da barra de abas
+   - Todas as janelas retornarão ao estado individual com suas próprias barras
+
+## Comportamento
+
+- Todas as janelas automaticamente recebem uma barra de abas (modo de desenvolvimento simplificado)
+- A barra de abas segue a janela ativa do grupo
+- Quando uma janela é fechada, ela é automaticamente removida do grupo
+- Grupos com apenas uma janela mostram uma barra com uma única aba
+- O agrupamento funciona arrastando qualquer janela sobre outra (sem necessidade de Ctrl)
+
+## Instalação
+
+1. Copie a extensão para o diretório de extensões do GNOME:
+
+   ```bash
+   ~/.local/share/gnome-shell/extensions/app-group-tabs@yxuo.github.io/
+   ```
+
+2. Reinicie o GNOME Shell:
+   - No X11: `Alt + F2`, digite `r` e pressione Enter
+   - No Wayland: Faça logout e login novamente
+
+3. Ative a extensão usando o GNOME Extensions ou via linha de comando:
+
+   ```bash
+   gnome-extensions enable app-group-tabs@yxuo.github.io
+   ```
+
+## Compatibilidade
+
+- GNOME Shell 45+
+- Testado no GNOME 46
+
+## Desenvolvimento
+
+Esta extensão foi desenvolvida usando as APIs padrão do GNOME Shell:
+
+- `Meta` para gerenciamento de janelas
+- `St` para elementos de interface
+- `Clutter` para eventos e animações
+
+## Licença
+
+GPL-2.0-or-later
