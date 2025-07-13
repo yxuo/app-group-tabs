@@ -14,11 +14,5 @@
       <description>When enabled, each window automatically gets its own tab bar. When disabled,
         windows start ungrouped until manually grouped.</description>
     </key>
-    <key name="show-tabs-maximized" type="b">
-      <default>true</default>
-      <summary>Show tabs when maximized</summary>
-      <description>When enabled, tab bars will be visible for maximized windows even when out of
-        focus. When disabled, maximized windows will only show tabs when focused.</description>
-    </key>
   </schema>
 </schemalist>

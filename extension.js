@@ -82,19 +82,6 @@ const Indicator = GObject.registerClass(
             // Separador
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            // Item para alternar mostrar abas em janelas maximizadas
-            this.maximizedTabsItem = new PopupMenu.PopupSwitchMenuItem(
-                _('Mostrar Abas em Janelas Maximizadas'),
-                this.tabManager.showTabsMaximized
-            );
-            this.maximizedTabsItem.connect('toggled', (item) => {
-                this.tabManager.setShowTabsMaximized(item.state);
-            });
-            this.menu.addMenuItem(this.maximizedTabsItem);
-
-            // Separador
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
             // Item para dissolver todos os grupos
             let dissolveAllItem = new PopupMenu.PopupMenuItem(_('Dissolver Todos os Grupos'));
             dissolveAllItem.connect('activate', () => {
@@ -213,8 +200,19 @@ const TabBar = GObject.registerClass(
             }
 
             const frame = activeWindow.get_frame_rect();
-            this.set_position(frame.x, frame.y - 40);
-            this.set_size(frame.width, 40);
+            const isMaximized = activeWindow.get_maximized() !== 0;
+
+            if (isMaximized) {
+                // Para janelas maximizadas, posicionar no topo da tela
+                const monitor = activeWindow.get_monitor();
+                const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
+                this.set_position(workArea.x, workArea.y);
+                this.set_size(workArea.width, 40);
+            } else {
+                // Para janelas não maximizadas, posicionar acima da janela
+                this.set_position(frame.x, frame.y - 40);
+                this.set_size(frame.width, 40);
+            }
         }
     });
 
@@ -227,6 +225,9 @@ class WindowGroup {
         this._signals = [];
         this._syncingPositions = false; // Flag para evitar loops de sincronização
         this._moveTimer = null; // Timer para detectar fim do movimento
+        this._mouseTracker = null; // Timer para rastrear cursor no topo da tela
+        this._topHoverTimeout = null; // Timeout para mostrar abas após 0.5s no topo
+        this._isTabBarForcedVisible = false; // Flag para controlar visibilidade forçada
 
         Main.layoutManager.addTopChrome(this.tabBar);
     }
@@ -403,6 +404,7 @@ class WindowGroup {
     _updateTabBarVisibility() {
         if (this.windows.length === 0) {
             this.tabBar.visible = false;
+            this._stopMouseTracking();
             return;
         }
 
@@ -410,18 +412,106 @@ class WindowGroup {
         const hasVisibleWindow = this.windows.some(window => !window.minimized);
         if (!hasVisibleWindow) {
             this.tabBar.visible = false;
+            this._stopMouseTracking();
             return;
         }
 
-        // Nova lógica: mostrar se tem foco OU (se alguma janela está maximizada E configuração permite)
         const hasWindowInFocus = this.windows.some(window => window.has_focus());
-        const hasWindowMaximized = this.windows.some(window =>
-            window.get_maximized() !== 0
-        );
-        const validateMaximizedTabs = !hasWindowMaximized || this.manager.showTabsMaximized;
+        const hasWindowMaximized = this.windows.some(window => window.get_maximized() !== 0);
 
-        this.tabBar.visible = hasWindowInFocus && validateMaximizedTabs;
-        console.log(`hasWindowMaximized: ${hasWindowMaximized}, showTabsMaximized: ${this.manager.showTabsMaximized}, validateMaximizedTabs: ${validateMaximizedTabs}`);
+        if (hasWindowInFocus) {
+            if (hasWindowMaximized) {
+                // Para janelas maximizadas, sempre usar detecção de cursor no topo
+                if (this._isTabBarForcedVisible) {
+                    this.tabBar.visible = true;
+                } else {
+                    this.tabBar.visible = false;
+                    this._startMouseTracking();
+                }
+            } else {
+                // Para janelas não maximizadas, mostrar normalmente
+                this.tabBar.visible = true;
+                this._stopMouseTracking();
+            }
+        } else {
+            this.tabBar.visible = false;
+            this._stopMouseTracking();
+        }
+    }
+
+    _startMouseTracking() {
+        if (this._mouseTracker) return; // Já está rastreando
+
+        this._mouseTracker = setInterval(() => {
+            const [x, y] = global.get_pointer();
+            const monitor = global.display.get_current_monitor();
+            const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
+
+            // Verificar se o cursor está no topo da tela (primeiros 5 pixels)
+            if (y <= workArea.y + 5) {
+                if (!this._topHoverTimeout) {
+                    this._topHoverTimeout = setTimeout(() => {
+                        this._showTabBarTemporarily();
+                    }, 500); // 0.5 segundos
+                }
+            } else {
+                // Cursor saiu do topo, cancelar timeout e esconder barra se necessário
+                if (this._topHoverTimeout) {
+                    clearTimeout(this._topHoverTimeout);
+                    this._topHoverTimeout = null;
+                }
+                if (this._isTabBarForcedVisible) {
+                    this._hideTabBarTemporarily();
+                }
+            }
+        }, 50); // Verificar a cada 50ms
+    }
+
+    _stopMouseTracking() {
+        if (this._mouseTracker) {
+            clearInterval(this._mouseTracker);
+            this._mouseTracker = null;
+        }
+
+        if (this._topHoverTimeout) {
+            clearTimeout(this._topHoverTimeout);
+            this._topHoverTimeout = null;
+        }
+
+        if (this._isTabBarForcedVisible) {
+            this._hideTabBarTemporarily();
+        }
+    }
+
+    _showTabBarTemporarily() {
+        this._isTabBarForcedVisible = true;
+        this.tabBar.visible = true;
+        this.tabBar.updatePosition();
+
+        // Configurar timeout para esconder após 3 segundos se o cursor sair do topo
+        if (this._topHoverTimeout) {
+            clearTimeout(this._topHoverTimeout);
+        }
+        this._topHoverTimeout = setTimeout(() => {
+            const [x, y] = global.get_pointer();
+            const monitor = global.display.get_current_monitor();
+            const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
+
+            // Esconder se o cursor não estiver no topo nem na área da barra de abas
+            if (y > workArea.y + 45) { // 5px topo + 40px altura da barra
+                this._hideTabBarTemporarily();
+            }
+        }, 3000);
+    }
+
+    _hideTabBarTemporarily() {
+        this._isTabBarForcedVisible = false;
+        this.tabBar.visible = false;
+
+        if (this._topHoverTimeout) {
+            clearTimeout(this._topHoverTimeout);
+            this._topHoverTimeout = null;
+        }
     }
 
     dissolve() {
@@ -430,6 +520,9 @@ class WindowGroup {
             clearTimeout(this._moveTimer);
             this._moveTimer = null;
         }
+
+        // Parar rastreamento do mouse e limpar timers
+        this._stopMouseTracking();
 
         // Tornar todas as janelas visíveis novamente antes de dissolver o grupo
         this.windows.forEach(window => {
@@ -474,7 +567,6 @@ class TabManager {
         this._settings = extension.getSettings();
         this.requireCtrl = this._settings.get_boolean('require-ctrl');
         this.startWithGroups = this._settings.get_boolean('start-with-groups');
-        this.showTabsMaximized = this._settings.get_boolean('show-tabs-maximized');
 
         // Conectar mudanças de configuração
         this._settingsId = this._settings.connect('changed::require-ctrl', () => {
@@ -482,10 +574,6 @@ class TabManager {
         });
         this._startGroupsSettingsId = this._settings.connect('changed::start-with-groups', () => {
             this.startWithGroups = this._settings.get_boolean('start-with-groups');
-        });
-        this._maximizedSettingsId = this._settings.connect('changed::show-tabs-maximized', () => {
-            this.showTabsMaximized = this._settings.get_boolean('show-tabs-maximized');
-            this.groups.forEach(group => group._updateTabBarVisibility());
         });
     }
 
@@ -621,11 +709,6 @@ class TabManager {
         if (this._startGroupsSettingsId) {
             this._settings.disconnect(this._startGroupsSettingsId);
             this._startGroupsSettingsId = null;
-        }
-
-        if (this._maximizedSettingsId) {
-            this._settings.disconnect(this._maximizedSettingsId);
-            this._maximizedSettingsId = null;
         }
 
         this._destroyDropIndicator();
@@ -829,15 +912,6 @@ class TabManager {
             });
         }
         // Se desabilitou, não remove grupos existentes - apenas afeta novas janelas
-    }
-
-    setShowTabsMaximized(value) {
-        this.showTabsMaximized = value;
-        this._settings.set_boolean('show-tabs-maximized', value);
-
-        this.groups.forEach(group => {
-            group._updateTabBarVisibility();
-        });
     }
 }
 
