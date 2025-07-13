@@ -82,6 +82,19 @@ const Indicator = GObject.registerClass(
             // Separador
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+            // Item para alternar mostrar abas em janelas maximizadas
+            this.maximizedTabsItem = new PopupMenu.PopupSwitchMenuItem(
+                _('Mostrar Abas em Janelas Maximizadas'),
+                this.tabManager.showTabsMaximized
+            );
+            this.maximizedTabsItem.connect('toggled', (item) => {
+                this.tabManager.setShowTabsMaximized(item.state);
+            });
+            this.menu.addMenuItem(this.maximizedTabsItem);
+
+            // Separador
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
             // Item para dissolver todos os grupos
             let dissolveAllItem = new PopupMenu.PopupMenuItem(_('Dissolver Todos os Grupos'));
             dissolveAllItem.connect('activate', () => {
@@ -303,13 +316,15 @@ class WindowGroup {
             return;
         }
 
-        // Nova lógica: mostrar se tem foco OU se alguma janela está maximizada
+        // Nova lógica: mostrar se tem foco OU (se alguma janela está maximizada E configuração permite)
         const hasWindowInFocus = this.windows.some(window => window.has_focus());
         const hasWindowMaximized = this.windows.some(window =>
             window.get_maximized() !== 0
         );
+        const showTabsMaximized = hasWindowMaximized && this.showTabsMaximized;
 
-        this.tabBar.visible = hasWindowInFocus || hasWindowMaximized;
+        this.tabBar.visible = hasWindowInFocus || showTabsMaximized;
+        console.log(`Tab bar visibility: ${this.tabBar.visible} (has focus: ${hasWindowInFocus}, has maximized: ${hasWindowMaximized} vs ${showTabsMaximized})`);
     }
 
     dissolve() {
@@ -348,6 +363,7 @@ class TabManager {
         this._settings = extension.getSettings();
         this.requireCtrl = this._settings.get_boolean('require-ctrl');
         this.startWithGroups = this._settings.get_boolean('start-with-groups');
+        this.showTabsMaximized = this._settings.get_boolean('show-tabs-maximized');
 
         // Conectar mudanças de configuração
         this._settingsId = this._settings.connect('changed::require-ctrl', () => {
@@ -355,6 +371,10 @@ class TabManager {
         });
         this._startGroupsSettingsId = this._settings.connect('changed::start-with-groups', () => {
             this.startWithGroups = this._settings.get_boolean('start-with-groups');
+        });
+        this._maximizedSettingsId = this._settings.connect('changed::show-tabs-maximized', () => {
+            this.showTabsMaximized = this._settings.get_boolean('show-tabs-maximized');
+            this.groups.forEach(group => group._updateTabBarVisibility());
         });
     }
 
@@ -490,6 +510,11 @@ class TabManager {
         if (this._startGroupsSettingsId) {
             this._settings.disconnect(this._startGroupsSettingsId);
             this._startGroupsSettingsId = null;
+        }
+
+        if (this._maximizedSettingsId) {
+            this._settings.disconnect(this._maximizedSettingsId);
+            this._maximizedSettingsId = null;
         }
 
         this._destroyDropIndicator();
@@ -669,10 +694,8 @@ class TabManager {
 
     setRequireCtrl(value) {
         this.requireCtrl = value;
-        // Salvar nas configurações
         this._settings.set_boolean('require-ctrl', value);
 
-        // Esconder indicador se mudou para modo Ctrl/Meta e nenhuma tecla está pressionada
         if (this.requireCtrl && !this._isCtrlPressed) {
             this._hideDropIndicator();
         }
@@ -695,6 +718,15 @@ class TabManager {
             });
         }
         // Se desabilitou, não remove grupos existentes - apenas afeta novas janelas
+    }
+
+    setShowTabsMaximized(value) {
+        this.showTabsMaximized = value;
+        this._settings.set_boolean('show-tabs-maximized', value);
+        
+        this.groups.forEach(group => {
+            group._updateTabBarVisibility();
+        });
     }
 }
 
