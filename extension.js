@@ -24,6 +24,7 @@ import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
+import Gio from 'gi://Gio';
 
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -264,6 +265,10 @@ class WindowGroup {
 
         this._updateTabBarVisibility();
         this.tabBar.updatePosition();
+
+        // Aplicar tema correto à barra de abas
+        const isLightTheme = this.manager._isLightTheme();
+        this.manager._updateTabBarTheme(this.tabBar, isLightTheme);
 
         // Sincronizar posição da nova janela com a janela ativa do grupo
         const activeWindow = this.tabBar._activeTab || this.windows[0];
@@ -658,6 +663,8 @@ class TabManager {
         this._draggedWindow = null;
         this._isCtrlPressed = false; // Estado atual do Ctrl/Meta
         this._tiledTabModeActive = false; // Flag global para modo de visualização de abas tiled
+        this._themeSettings = null; // Configurações de tema
+        this._themeSignalId = null; // Signal para mudanças de tema
 
         // Carregar configurações
         this._settings = extension.getSettings();
@@ -755,6 +762,9 @@ class TabManager {
 
         this._createDropIndicator();
 
+        // Configurar monitoramento de tema
+        this._setupThemeMonitoring();
+
         // Método alternativo: usar um timer para verificar estado das teclas
         this._checkModifierTimer = setInterval(() => {
             const [x, y, mask] = global.get_pointer();
@@ -812,6 +822,9 @@ class TabManager {
             this._settings.disconnect(this._startGroupsSettingsId);
             this._startGroupsSettingsId = null;
         }
+
+        // Limpar monitoramento de tema
+        this._cleanupThemeMonitoring();
 
         this._destroyDropIndicator();
     }
@@ -1048,6 +1061,77 @@ class TabManager {
 
     _isTiledTabModeActive() {
         return this._tiledTabModeActive;
+    }
+
+    // Métodos para gerenciamento de tema
+    _setupThemeMonitoring() {
+        try {
+            // Conectar às configurações de interface do GNOME
+            this._themeSettings = new Gio.Settings({ schema: 'org.gnome.desktop.interface' });
+
+            // Monitorar mudanças de tema GTK (método mais universal)
+            this._themeSignalId = this._themeSettings.connect('changed::gtk-theme', () => {
+                this._updateAllTabBarsTheme();
+            });
+
+            // Aplicar tema inicial
+            this._updateAllTabBarsTheme();
+        } catch (error) {
+            console.log('App Group Tabs: Erro ao configurar monitoramento de tema:', error);
+        }
+    }
+
+    _updateAllTabBarsTheme() {
+        const isLightTheme = this._isLightTheme();
+        this.groups.forEach(group => {
+            this._updateTabBarTheme(group.tabBar, isLightTheme);
+        });
+    }
+
+    _isLightTheme() {
+        try {
+            if (!this._themeSettings) return false;
+
+            // Primeiro tentar color-scheme (GNOME 42+)
+            try {
+                const colorScheme = this._themeSettings.get_string('color-scheme');
+                if (colorScheme === 'prefer-light') return true;
+                if (colorScheme === 'prefer-dark') return false;
+            } catch (e) {
+                // color-scheme não existe, continuar com método alternativo
+            }
+
+            // Fallback: detectar pelo nome do tema GTK
+            const gtkTheme = this._themeSettings.get_string('gtk-theme').toLowerCase();
+
+            // Verificar nomes comuns de temas claros
+            return gtkTheme.includes('light') ||
+                (gtkTheme.includes('adwaita') && !gtkTheme.includes('dark')) ||
+                gtkTheme.includes('breeze-light') ||
+                gtkTheme.includes('yaru-light') ||
+                gtkTheme === 'adwaita' ||
+                gtkTheme === 'yaru' ||
+                (gtkTheme.includes('yaru') && !gtkTheme.includes('dark'));
+
+        } catch (error) {
+            return false; // Fallback para tema escuro
+        }
+    }
+
+    _updateTabBarTheme(tabBar, isLightTheme) {
+        if (isLightTheme) {
+            tabBar.add_style_class_name('light-theme');
+        } else {
+            tabBar.remove_style_class_name('light-theme');
+        }
+    }
+
+    _cleanupThemeMonitoring() {
+        if (this._themeSignalId && this._themeSettings) {
+            this._themeSettings.disconnect(this._themeSignalId);
+            this._themeSignalId = null;
+        }
+        this._themeSettings = null;
     }
 }
 

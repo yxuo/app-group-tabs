@@ -1,5 +1,7 @@
 /* App Group Tabs - Estilos da extensão */
 
+/* ===== TEMA ESCURO (padrão) ===== */
+
 /* Barra de abas */
 .tab-bar {
     background-color: rgba(40, 40, 40, 0.95);
@@ -77,6 +79,62 @@
 }
 
 .tab-close-button:hover StIcon {
+    color: white;
+}
+
+/* ===== TEMA CLARO ===== */
+
+/* Classe aplicada quando o tema claro está ativo */
+.tab-bar.light-theme {
+    background-color: rgba(245, 245, 245, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.tab-bar.light-theme .tab {
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.tab-bar.light-theme .tab:hover {
+    background-color: rgba(240, 240, 240, 0.95);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.tab-bar.light-theme .tab.active {
+    background-color: rgba(53, 132, 228, 0.9);
+    border-color: rgba(53, 132, 228, 1);
+    color: white;
+}
+
+.tab-bar.light-theme .tab.active:hover {
+    background-color: rgba(53, 132, 228, 1);
+}
+
+.tab-bar.light-theme .tab StLabel {
+    color: rgba(0, 0, 0, 0.87);
+}
+
+.tab-bar.light-theme .tab.active StLabel {
+    color: white;
+    font-weight: bold;
+}
+
+.tab-bar.light-theme .tab-close-button {
+    background-color: rgba(220, 220, 220, 0.8);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.tab-bar.light-theme .tab-close-button:hover {
+    background-color: rgba(224, 108, 117, 0.9);
+    border-color: rgba(224, 108, 117, 1);
+}
+
+.tab-bar.light-theme .tab-close-button StIcon {
+    color: rgba(0, 0, 0, 0.6);
+}
+
+.tab-bar.light-theme .tab-close-button:hover StIcon {
     color: white;
 }
 
