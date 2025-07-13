@@ -418,9 +418,10 @@ class WindowGroup {
         const hasWindowMaximized = this.windows.some(window =>
             window.get_maximized() !== 0
         );
-        const showMaximizedTabs = this.manager.showTabsMaximized;
+        const validateMaximizedTabs = !hasWindowMaximized || this.manager.showTabsMaximized;
 
-        this.tabBar.visible = hasWindowInFocus || (hasWindowMaximized && showMaximizedTabs);
+        this.tabBar.visible = hasWindowInFocus && validateMaximizedTabs;
+        console.log(`hasWindowMaximized: ${hasWindowMaximized}, showTabsMaximized: ${this.manager.showTabsMaximized}, validateMaximizedTabs: ${validateMaximizedTabs}`);
     }
 
     dissolve() {
