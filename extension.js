@@ -543,7 +543,7 @@ class WindowGroup {
                         // Primeira vez ou janela maximizada, usar timeout normal
                         this._topHoverTimeout = setTimeout(() => {
                             this._showTabBarTemporarily();
-                        }, 500); // 0.5 segundos
+                        }, 200); // 0.2 segundos
                     }
                 }
             } else {
