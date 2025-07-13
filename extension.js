@@ -447,15 +447,24 @@ class WindowGroup {
             const monitor = global.display.get_current_monitor();
             const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
 
-            // Verificar se o cursor está no topo da tela (primeiros 5 pixels)
-            if (y <= workArea.y + 5) {
-                if (!this._topHoverTimeout) {
+            // Verificar se o cursor está no topo da tela (primeiros 5 pixels) 
+            // OU na área da barra de abas (quando ela estiver visível)
+            const isInTopArea = y <= workArea.y + 5;
+            const isInTabBarArea = this._isTabBarForcedVisible && 
+                                 y >= workArea.y && 
+                                 y <= workArea.y + 40 &&
+                                 x >= workArea.x && 
+                                 x <= workArea.x + workArea.width;
+
+            if (isInTopArea || isInTabBarArea) {
+                if (!this._topHoverTimeout && !this._isTabBarForcedVisible) {
+                    // Só criar timeout se a barra não estiver já visível
                     this._topHoverTimeout = setTimeout(() => {
                         this._showTabBarTemporarily();
                     }, 500); // 0.5 segundos
                 }
             } else {
-                // Cursor saiu do topo, cancelar timeout e esconder barra se necessário
+                // Cursor saiu do topo E da área da barra, cancelar timeout e esconder barra
                 if (this._topHoverTimeout) {
                     clearTimeout(this._topHoverTimeout);
                     this._topHoverTimeout = null;
@@ -487,21 +496,12 @@ class WindowGroup {
         this._isTabBarForcedVisible = true;
         this.tabBar.visible = true;
         this.tabBar.updatePosition();
-
-        // Configurar timeout para esconder após 3 segundos se o cursor sair do topo
+        
+        // Limpar timeout de criação, já que a barra agora está visível
         if (this._topHoverTimeout) {
             clearTimeout(this._topHoverTimeout);
+            this._topHoverTimeout = null;
         }
-        this._topHoverTimeout = setTimeout(() => {
-            const [x, y] = global.get_pointer();
-            const monitor = global.display.get_current_monitor();
-            const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
-
-            // Esconder se o cursor não estiver no topo nem na área da barra de abas
-            if (y > workArea.y + 45) { // 5px topo + 40px altura da barra
-                this._hideTabBarTemporarily();
-            }
-        }, 3000);
     }
 
     _hideTabBarTemporarily() {
