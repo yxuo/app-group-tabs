@@ -139,7 +139,104 @@ const TabBar = GObject.registerClass(
                 })
             });
 
-            tab.connect('clicked', () => this._activateTab(window));
+            // Estados possíveis: 'none', 'down', 'drag', 'up', 'click'
+            let tabState = 'none';
+            let pressStartX = 0;
+            let pressStartY = 0;
+            let dragMotionId = null;
+            let dragReleaseId = null;
+            const dragThreshold = 5; // pixels
+
+            // Função para atualizar estado
+            const updateState = (newState, event) => {
+                const oldState = tabState;
+                tabState = newState;
+                const [x, y] = event ? event.get_coords() : [0, 0];
+                console.log(`[State Change] Aba "${window.get_title()}": ${oldState} -> ${newState}`);
+            };
+
+            // Conectar eventos de mouse down
+            tab.connect('button-press-event', (actor, event) => {
+                if (event.get_button() === 1) { // Botão esquerdo do mouse
+                    const [x, y] = event.get_coords();
+                    pressStartX = x;
+                    pressStartY = y;
+                    
+                    updateState('down', event);
+                    
+                    // Conectar eventos globais para detectar movimento
+                    dragMotionId = global.stage.connect('motion-event', (stage, motionEvent) => {
+                        if (tabState === 'down') {
+                            const [currentX, currentY] = motionEvent.get_coords();
+                            const deltaX = Math.abs(currentX - pressStartX);
+                            const deltaY = Math.abs(currentY - pressStartY);
+                            
+                            // Verificar se moveu mais que o threshold
+                            if (deltaX > dragThreshold || deltaY > dragThreshold) {
+                                updateState('drag', motionEvent);
+                            }
+                        } else if (tabState === 'drag') {
+                            // Logar movimento durante o drag
+                            const [currentX, currentY] = motionEvent.get_coords();
+                            console.log(`[Drag Movement] Aba "${window.get_title()}" movendo para (${currentX}, ${currentY})`);
+                        }
+                        return Clutter.EVENT_PROPAGATE;
+                    });
+
+                    // Conectar evento global de mouse up
+                    dragReleaseId = global.stage.connect('button-release-event', (stage, releaseEvent) => {
+                        if (releaseEvent.get_button() === 1) {
+                            // Limpar event listeners primeiro
+                            if (dragMotionId) {
+                                global.stage.disconnect(dragMotionId);
+                                dragMotionId = null;
+                            }
+                            if (dragReleaseId) {
+                                global.stage.disconnect(dragReleaseId);
+                                dragReleaseId = null;
+                            }
+                            
+                            if (tabState === 'drag') {
+                                updateState('up', releaseEvent);
+                                console.log(`[Drag End] Drag finalizado na aba "${window.get_title()}"`);
+                            } else if (tabState === 'down') {
+                                updateState('click', releaseEvent);
+                                console.log(`[Click] Clique registrado na aba "${window.get_title()}"`);
+                                // Ativar a aba apenas se foi um clique
+                                this._activateTab(window);
+                            } else {
+                                updateState('up', releaseEvent);
+                            }
+                            
+                            // Reset para estado inicial após um pequeno delay
+                            setTimeout(() => {
+                                tabState = 'none';
+                                console.log(`[State Reset] Aba "${window.get_title()}" voltou ao estado 'none'`);
+                            }, 100);
+                        }
+                        return Clutter.EVENT_PROPAGATE;
+                    });
+                }
+                return Clutter.EVENT_STOP;
+            });
+
+            // Conectar evento de mouse up local (backup)
+            tab.connect('button-release-event', (actor, event) => {
+                if (event.get_button() === 1) {
+                    if (tabState === 'drag') {
+                        updateState('up', event);
+                        console.log(`[Drag End Local] Drag finalizado na aba "${window.get_title()}"`);
+                    } else if (tabState === 'down') {
+                        updateState('click', event);
+                        console.log(`[Click Local] Clique registrado na aba "${window.get_title()}"`);
+                        // Ativar a aba apenas se foi um clique
+                        this._activateTab(window);
+                    } else {
+                        updateState('up', event);
+                    }
+                }
+                return Clutter.EVENT_PROPAGATE;
+            });
 
             this.tabs.set(window, tab);
             this._tabContainer.add_child(tab);
@@ -545,7 +642,7 @@ class WindowGroup {
                         // Se o modo tiled já está ativo e esta é uma janela tiled, mostrar imediatamente
                         this._showTabBarTemporarily();
                     } else {
-                        // Primeira vez ou janela maximizada, usar timeout normal
+                        // Primeira vez ou janela maximizadas, usar timeout normal
                         this._topHoverTimeout = setTimeout(() => {
                             this._showTabBarTemporarily();
                         }, 200); // 0.2 segundos
