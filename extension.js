@@ -178,6 +178,8 @@ const TabBar = GObject.registerClass(
             this._activeTab = window;
             window.activate(global.get_current_time());
             this._updateTabStyles();
+            // Sincronizar posições quando uma aba é ativada
+            this.group._syncWindowPositions(window);
         }
 
         _updateTabStyles() {
@@ -221,6 +223,8 @@ class WindowGroup {
         this.windows = [];
         this.tabBar = new TabBar(this);
         this._signals = [];
+        this._syncingPositions = false; // Flag para evitar loops de sincronização
+        this._moveTimer = null; // Timer para detectar fim do movimento
 
         Main.layoutManager.addTopChrome(this.tabBar);
     }
@@ -247,6 +251,12 @@ class WindowGroup {
 
         this._updateTabBarVisibility();
         this.tabBar.updatePosition();
+
+        // Sincronizar posição da nova janela com a janela ativa do grupo
+        const activeWindow = this.tabBar._activeTab || this.windows[0];
+        if (activeWindow && activeWindow !== window && !activeWindow.minimized) {
+            this._syncWindowPositions(activeWindow);
+        }
     }
 
     removeWindow(window) {
@@ -280,6 +290,11 @@ class WindowGroup {
             (window === this.tabBar._activeTab ||
                 (!this.tabBar._activeTab && this.windows[0] === window))) {
             this.tabBar.updatePosition();
+            // Sincronizar posições das outras janelas quando a janela ativa é movida
+            this._syncWindowPositions(window);
+
+            // Configurar timer para detectar fim do movimento
+            this._scheduleMovementEnd(window);
         }
     }
 
@@ -289,6 +304,8 @@ class WindowGroup {
             (window === this.tabBar._activeTab ||
                 (!this.tabBar._activeTab && this.windows[0] === window))) {
             this.tabBar.updatePosition();
+            // Sincronizar posições das outras janelas quando a janela ativa é redimensionada
+            this._syncWindowPositions(window);
         }
     }
 
@@ -296,11 +313,63 @@ class WindowGroup {
         this.tabBar.setActiveWindow(window);
         this._updateTabBarVisibility(); // Atualizar visibilidade quando janela ganha foco
         this.tabBar.updatePosition();
+        this._syncWindowPositions(window); // Sincronizar posições das janelas no grupo
     }
 
     _onWindowMinimizedChanged(window) {
         this._updateTabBarVisibility();
         this.tabBar.updatePosition();
+    }
+
+    _syncWindowPositions(activeWindow) {
+        if (!activeWindow || activeWindow.minimized || this._syncingPositions) return;
+
+        // Flag para evitar loops infinitos durante sincronização
+        this._syncingPositions = true;
+
+        const activeRect = activeWindow.get_frame_rect();
+
+        // Sincronizar posição e tamanho de todas as outras janelas do grupo
+        this.windows.forEach(window => {
+            if (window === activeWindow || window.minimized) return;
+
+            // Mover e redimensionar a janela para a mesma posição da ativa
+            // Usar user_op = true para forçar posicionamento mesmo fora da tela
+            window.move_resize_frame(
+                true, // user_op = true para permitir posições fora da tela
+                activeRect.x,
+                activeRect.y,
+                activeRect.width,
+                activeRect.height
+            );
+        });
+
+        // Liberar a flag após um pequeno delay
+        setTimeout(() => {
+            this._syncingPositions = false;
+        }, 50);
+    }
+
+    _scheduleMovementEnd(window) {
+        // Limpar timer anterior se existir
+        if (this._moveTimer) {
+            clearTimeout(this._moveTimer);
+        }
+
+        // Configurar novo timer para detectar fim do movimento
+        this._moveTimer = setTimeout(() => {
+            this._onMovementFinished(window);
+            this._moveTimer = null;
+        }, 100);
+    }
+
+    _onMovementFinished(window) {
+        // Sincronizar posições mais uma vez quando o movimento terminar
+        if (!window.minimized &&
+            (window === this.tabBar._activeTab ||
+                (!this.tabBar._activeTab && this.windows[0] === window))) {
+            this._syncWindowPositions(window);
+        }
     }
 
     _updateTabBarVisibility() {
@@ -321,13 +390,18 @@ class WindowGroup {
         const hasWindowMaximized = this.windows.some(window =>
             window.get_maximized() !== 0
         );
-        const showTabsMaximized = hasWindowMaximized && this.showTabsMaximized;
+        const showMaximizedTabs = this.manager.showTabsMaximized;
 
-        this.tabBar.visible = hasWindowInFocus || showTabsMaximized;
-        console.log(`Tab bar visibility: ${this.tabBar.visible} (has focus: ${hasWindowInFocus}, has maximized: ${hasWindowMaximized} vs ${showTabsMaximized})`);
+        this.tabBar.visible = hasWindowInFocus || (hasWindowMaximized && showMaximizedTabs);
     }
 
     dissolve() {
+        // Limpar timer de movimento se existir
+        if (this._moveTimer) {
+            clearTimeout(this._moveTimer);
+            this._moveTimer = null;
+        }
+
         // Desconectar todos os sinais
         this._signals.forEach(signal => {
             signal.window.disconnect(signal.id);
@@ -723,7 +797,7 @@ class TabManager {
     setShowTabsMaximized(value) {
         this.showTabsMaximized = value;
         this._settings.set_boolean('show-tabs-maximized', value);
-        
+
         this.groups.forEach(group => {
             group._updateTabBarVisibility();
         });
