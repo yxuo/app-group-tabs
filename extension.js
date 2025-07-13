@@ -225,7 +225,9 @@ class WindowGroup {
             window.connect('focus', () => this._onWindowFocused(window)),
             window.connect('unmanaging', () => this.removeWindow(window)),
             window.connect('notify::minimized', () => this._onWindowMinimizedChanged(window)),
-            window.connect('notify::has-focus', () => this._updateTabBarVisibility())
+            window.connect('notify::has-focus', () => this._updateTabBarVisibility()),
+            window.connect('notify::maximized-horizontally', () => this._updateTabBarVisibility()),
+            window.connect('notify::maximized-vertically', () => this._updateTabBarVisibility())
         ];
 
         this._signals.push(...signals.map(id => ({ window, id })));
@@ -301,16 +303,13 @@ class WindowGroup {
             return;
         }
 
-        // Nova lógica: ocultar se NENHUMA janela do grupo estiver em foco
+        // Nova lógica: mostrar se tem foco OU se alguma janela está maximizada
         const hasWindowInFocus = this.windows.some(window => window.has_focus());
+        const hasWindowMaximized = this.windows.some(window =>
+            window.get_maximized() !== 0
+        );
 
-        this.tabBar.visible = hasWindowInFocus;
-
-        if (hasWindowInFocus) {
-            console.log('Tab bar shown (group has focused window)');
-        } else {
-            console.log('Tab bar hidden (no window in group has focus)');
-        }
+        this.tabBar.visible = hasWindowInFocus || hasWindowMaximized;
     }
 
     dissolve() {
