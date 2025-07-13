@@ -180,6 +180,8 @@ const TabBar = GObject.registerClass(
             this._updateTabStyles();
             // Sincronizar posições quando uma aba é ativada
             this.group._syncWindowPositions(window);
+            // Atualizar visibilidade das janelas do grupo
+            this.group._updateWindowsVisibility(window);
         }
 
         _updateTabStyles() {
@@ -256,12 +258,20 @@ class WindowGroup {
         const activeWindow = this.tabBar._activeTab || this.windows[0];
         if (activeWindow && activeWindow !== window && !activeWindow.minimized) {
             this._syncWindowPositions(activeWindow);
+            // Atualizar visibilidade - nova janela deve ficar oculta se não for ativa
+            this._updateWindowsVisibility(activeWindow);
         }
     }
 
     removeWindow(window) {
         const index = this.windows.indexOf(window);
         if (index === -1) return;
+
+        // Tornar a janela visível novamente antes de remover do grupo
+        if (!window.minimized) {
+            const actor = window.get_compositor_private();
+            if (actor) actor.set_opacity(255); // Restaurar opacidade total
+        }
 
         this.windows.splice(index, 1);
         this.tabBar.removeTab(window);
@@ -314,6 +324,7 @@ class WindowGroup {
         this._updateTabBarVisibility(); // Atualizar visibilidade quando janela ganha foco
         this.tabBar.updatePosition();
         this._syncWindowPositions(window); // Sincronizar posições das janelas no grupo
+        this._updateWindowsVisibility(window); // Atualizar visibilidade das janelas do grupo
     }
 
     _onWindowMinimizedChanged(window) {
@@ -372,6 +383,23 @@ class WindowGroup {
         }
     }
 
+    _updateWindowsVisibility(activeWindow) {
+        // Ajustar opacidade das janelas do grupo
+        this.windows.forEach(window => {
+            if (window === activeWindow) {
+                // Janela ativa com opacidade total
+                if (window.minimized) return; // Não alterar se estiver minimizada
+                const actor = window.get_compositor_private();
+                if (actor) actor.set_opacity(255); // 100% opacidade
+            } else {
+                // Outras janelas com opacidade reduzida
+                if (window.minimized) return; // Não alterar se estiver minimizada
+                const actor = window.get_compositor_private();
+                if (actor) actor.set_opacity(0); // 20% opacidade (255 * 0.2 ≈ 51)
+            }
+        });
+    }
+
     _updateTabBarVisibility() {
         if (this.windows.length === 0) {
             this.tabBar.visible = false;
@@ -401,6 +429,14 @@ class WindowGroup {
             clearTimeout(this._moveTimer);
             this._moveTimer = null;
         }
+
+        // Tornar todas as janelas visíveis novamente antes de dissolver o grupo
+        this.windows.forEach(window => {
+            if (!window.minimized) {
+                const actor = window.get_compositor_private();
+                if (actor) actor.set_opacity(255); // Restaurar opacidade total
+            }
+        });
 
         // Desconectar todos os sinais
         this._signals.forEach(signal => {
