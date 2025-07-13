@@ -201,13 +201,20 @@ const TabBar = GObject.registerClass(
 
             const frame = activeWindow.get_frame_rect();
             const isMaximized = activeWindow.get_maximized() !== 0;
+            const isTiled = this.group._isWindowTiled(activeWindow);
 
             if (isMaximized) {
-                // Para janelas maximizadas, posicionar no topo da tela
+                // Para janelas maximizadas, posicionar no topo da tela ocupando toda a largura
                 const monitor = activeWindow.get_monitor();
                 const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
                 this.set_position(workArea.x, workArea.y);
                 this.set_size(workArea.width, 40);
+            } else if (isTiled) {
+                // Para janelas tiled, posicionar no topo mas apenas sobre a janela específica
+                const monitor = activeWindow.get_monitor();
+                const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
+                this.set_position(frame.x, workArea.y);
+                this.set_size(frame.width, 40);
             } else {
                 // Para janelas não maximizadas, posicionar acima da janela
                 this.set_position(frame.x, frame.y - 40);
@@ -247,7 +254,10 @@ class WindowGroup {
             window.connect('notify::minimized', () => this._onWindowMinimizedChanged(window)),
             window.connect('notify::has-focus', () => this._updateTabBarVisibility()),
             window.connect('notify::maximized-horizontally', () => this._updateTabBarVisibility()),
-            window.connect('notify::maximized-vertically', () => this._updateTabBarVisibility())
+            window.connect('notify::maximized-vertically', () => this._updateTabBarVisibility()),
+            // Adicionar eventos para detectar mudanças de tiling
+            window.connect('position-changed', () => this._updateTabBarVisibility()),
+            window.connect('size-changed', () => this._updateTabBarVisibility())
         ];
 
         this._signals.push(...signals.map(id => ({ window, id })));
@@ -418,10 +428,11 @@ class WindowGroup {
 
         const hasWindowInFocus = this.windows.some(window => window.has_focus());
         const hasWindowMaximized = this.windows.some(window => window.get_maximized() !== 0);
+        const hasWindowTiled = this.windows.some(window => this._isWindowTiled(window));
 
         if (hasWindowInFocus) {
-            if (hasWindowMaximized) {
-                // Para janelas maximizadas, sempre usar detecção de cursor no topo
+            if (hasWindowMaximized || hasWindowTiled) {
+                // Para janelas maximizadas ou tiled, sempre usar detecção de cursor no topo
                 if (this._isTabBarForcedVisible) {
                     this.tabBar.visible = true;
                 } else {
@@ -429,14 +440,53 @@ class WindowGroup {
                     this._startMouseTracking();
                 }
             } else {
-                // Para janelas não maximizadas, mostrar normalmente
+                // Para janelas não maximizadas nem tiled, mostrar normalmente
                 this.tabBar.visible = true;
                 this._stopMouseTracking();
+            }
+        } else if (hasWindowTiled) {
+            // Para janelas tiled sem foco, ainda permitir detecção de hover
+            // já que cada janela tem sua própria área de hover
+            if (this._isTabBarForcedVisible) {
+                this.tabBar.visible = true;
+            } else {
+                this.tabBar.visible = false;
+                this._startMouseTracking();
             }
         } else {
             this.tabBar.visible = false;
             this._stopMouseTracking();
         }
+    }
+
+    _isWindowTiled(window) {
+        if (window.minimized || window.get_maximized() !== 0) {
+            return false; // Janelas minimizadas ou maximizadas não são consideradas tiled
+        }
+
+        const windowRect = window.get_frame_rect();
+        const monitor = window.get_monitor();
+        const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
+
+        // Verificar se a janela ocupa exatamente metade horizontal da tela
+        // Tolerância de alguns pixels para bordas e gaps
+        const tolerance = 10;
+
+        // Verificar altura: deve ocupar toda ou quase toda a altura disponível
+        const heightMatch = Math.abs(windowRect.height - workArea.height) <= tolerance;
+
+        // Verificar largura: deve ocupar aproximadamente metade da largura
+        const expectedHalfWidth = workArea.width / 2;
+        const widthMatch = Math.abs(windowRect.width - expectedHalfWidth) <= tolerance;
+
+        // Verificar posição vertical: deve estar alinhada com o topo da work area
+        const topMatch = Math.abs(windowRect.y - workArea.y) <= tolerance;
+
+        // Verificar posição horizontal: deve estar no lado esquerdo ou direito
+        const leftSideMatch = Math.abs(windowRect.x - workArea.x) <= tolerance;
+        const rightSideMatch = Math.abs(windowRect.x - (workArea.x + expectedHalfWidth)) <= tolerance;
+
+        return heightMatch && widthMatch && topMatch && (leftSideMatch || rightSideMatch);
     }
 
     _startMouseTracking() {
@@ -447,24 +497,57 @@ class WindowGroup {
             const monitor = global.display.get_current_monitor();
             const workArea = global.workspace_manager.get_workspace_by_index(0).get_work_area_for_monitor(monitor);
 
-            // Verificar se o cursor está no topo da tela (primeiros 5 pixels) 
-            // OU na área da barra de abas (quando ela estiver visível)
-            const isInTopArea = y <= workArea.y + 5;
-            const isInTabBarArea = this._isTabBarForcedVisible && 
-                                 y >= workArea.y && 
-                                 y <= workArea.y + 40 &&
-                                 x >= workArea.x && 
-                                 x <= workArea.x + workArea.width;
+            // Encontrar a janela ativa ou primeira visível
+            let activeWindow = this.tabBar._activeTab;
+            if (!activeWindow || activeWindow.minimized) {
+                const visibleWindows = this.windows.filter(window => !window.minimized);
+                if (visibleWindows.length === 0) return;
+                activeWindow = visibleWindows[0];
+            }
 
-            if (isInTopArea || isInTabBarArea) {
+            const isMaximized = activeWindow.get_maximized() !== 0;
+            const isTiled = this._isWindowTiled(activeWindow);
+
+            let isInTargetArea = false;
+
+            if (isMaximized) {
+                // Para janelas maximizadas, verificar se está no topo da tela (primeiros 5 pixels)
+                // OU na área da barra de abas (quando ela estiver visível)
+                const isInTopArea = y <= workArea.y + 5;
+                const isInTabBarArea = this._isTabBarForcedVisible &&
+                    y >= workArea.y &&
+                    y <= workArea.y + 40 &&
+                    x >= workArea.x &&
+                    x <= workArea.x + workArea.width;
+                isInTargetArea = isInTopArea || isInTabBarArea;
+            } else if (isTiled) {
+                // Para janelas tiled, verificar se está no topo E na área horizontal da janela específica
+                const frame = activeWindow.get_frame_rect();
+                const isInTopArea = y <= workArea.y + 5;
+                const isInWindowHorizontalArea = x >= frame.x && x <= frame.x + frame.width;
+                const isInTabBarArea = this._isTabBarForcedVisible &&
+                    y >= workArea.y &&
+                    y <= workArea.y + 40 &&
+                    x >= frame.x &&
+                    x <= frame.x + frame.width;
+                isInTargetArea = (isInTopArea && isInWindowHorizontalArea) || isInTabBarArea;
+            } if (isInTargetArea) {
                 if (!this._topHoverTimeout && !this._isTabBarForcedVisible) {
-                    // Só criar timeout se a barra não estiver já visível
-                    this._topHoverTimeout = setTimeout(() => {
+                    // Verificar se estamos no modo de visualização de abas tiled
+                    const isTiledModeActive = this.manager._isTiledTabModeActive();
+
+                    if (isTiledModeActive && isTiled) {
+                        // Se o modo tiled já está ativo e esta é uma janela tiled, mostrar imediatamente
                         this._showTabBarTemporarily();
-                    }, 500); // 0.5 segundos
+                    } else {
+                        // Primeira vez ou janela maximizada, usar timeout normal
+                        this._topHoverTimeout = setTimeout(() => {
+                            this._showTabBarTemporarily();
+                        }, 500); // 0.5 segundos
+                    }
                 }
             } else {
-                // Cursor saiu do topo E da área da barra, cancelar timeout e esconder barra
+                // Cursor saiu da área alvo, cancelar timeout e esconder barra
                 if (this._topHoverTimeout) {
                     clearTimeout(this._topHoverTimeout);
                     this._topHoverTimeout = null;
@@ -496,7 +579,13 @@ class WindowGroup {
         this._isTabBarForcedVisible = true;
         this.tabBar.visible = true;
         this.tabBar.updatePosition();
-        
+
+        // Ativar modo tiled se for uma janela tiled
+        const activeWindow = this.tabBar._activeTab || this.windows.find(w => !w.minimized);
+        if (activeWindow && this._isWindowTiled(activeWindow)) {
+            this.manager._activateTiledTabMode();
+        }
+
         // Limpar timeout de criação, já que a barra agora está visível
         if (this._topHoverTimeout) {
             clearTimeout(this._topHoverTimeout);
@@ -507,6 +596,12 @@ class WindowGroup {
     _hideTabBarTemporarily() {
         this._isTabBarForcedVisible = false;
         this.tabBar.visible = false;
+
+        // Agendar desativação do modo tiled se esta era uma janela tiled
+        const activeWindow = this.tabBar._activeTab || this.windows.find(w => !w.minimized);
+        if (activeWindow && this._isWindowTiled(activeWindow)) {
+            this.manager._scheduleDeactivateTiledTabMode();
+        }
 
         if (this._topHoverTimeout) {
             clearTimeout(this._topHoverTimeout);
@@ -562,6 +657,7 @@ class TabManager {
         this._dropIndicator = null;
         this._draggedWindow = null;
         this._isCtrlPressed = false; // Estado atual do Ctrl/Meta
+        this._tiledTabModeActive = false; // Flag global para modo de visualização de abas tiled
 
         // Carregar configurações
         this._settings = extension.getSettings();
@@ -698,6 +794,12 @@ class TabManager {
         if (this._checkModifierTimer) {
             clearInterval(this._checkModifierTimer);
             this._checkModifierTimer = null;
+        }
+
+        // Limpar timeout do modo tiled
+        if (this._tiledTabModeTimeout) {
+            clearTimeout(this._tiledTabModeTimeout);
+            this._tiledTabModeTimeout = null;
         }
 
         // Desconectar configurações
@@ -912,6 +1014,40 @@ class TabManager {
             });
         }
         // Se desabilitou, não remove grupos existentes - apenas afeta novas janelas
+    }
+
+    // Métodos para gerenciar o modo de visualização de abas tiled
+    _activateTiledTabMode() {
+        this._tiledTabModeActive = true;
+        // Limpar qualquer timeout existente para desativar o modo
+        if (this._tiledTabModeTimeout) {
+            clearTimeout(this._tiledTabModeTimeout);
+            this._tiledTabModeTimeout = null;
+        }
+    }
+
+    _scheduleDeactivateTiledTabMode() {
+        // Agendar desativação do modo apenas se não houver barras tiled visíveis
+        if (this._tiledTabModeTimeout) {
+            clearTimeout(this._tiledTabModeTimeout);
+        }
+
+        this._tiledTabModeTimeout = setTimeout(() => {
+            // Verificar se ainda há alguma barra tiled visível antes de desativar
+            const hasAnyTiledVisible = Array.from(this.groups).some(group => {
+                const hasTiledWindow = group.windows.some(window => group._isWindowTiled(window));
+                return hasTiledWindow && group._isTabBarForcedVisible;
+            });
+
+            if (!hasAnyTiledVisible) {
+                this._tiledTabModeActive = false;
+            }
+            this._tiledTabModeTimeout = null;
+        }, 100); // Pequeno delay para verificar estado
+    }
+
+    _isTiledTabModeActive() {
+        return this._tiledTabModeActive;
     }
 }
 
