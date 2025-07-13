@@ -32,65 +32,65 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 // Indicador na barra superior
 const Indicator = GObject.registerClass(
-class Indicator extends PanelMenu.Button {
-    _init(tabManager) {
-        super._init(0.0, _('App Group Tabs'));
+    class Indicator extends PanelMenu.Button {
+        _init(tabManager) {
+            super._init(0.0, _('App Group Tabs'));
 
-        this.tabManager = tabManager;
+            this.tabManager = tabManager;
 
-        this.add_child(new St.Icon({
-            icon_name: 'view-grid-symbolic',
-            style_class: 'system-status-icon',
-        }));
+            this.add_child(new St.Icon({
+                icon_name: 'view-grid-symbolic',
+                style_class: 'system-status-icon',
+            }));
 
-        // Item para mostrar status dos grupos
-        let statusItem = new PopupMenu.PopupMenuItem(_('Grupos Ativos'));
-        statusItem.connect('activate', () => {
-            const groupCount = this.tabManager.groups.size;
-            const windowCount = this.tabManager.windowGroups.size;
-            Main.notify(_(`App Group Tabs`), 
-                       _(`${groupCount} grupos ativos com ${windowCount} janelas`));
-        });
-        this.menu.addMenuItem(statusItem);
+            // Item para mostrar status dos grupos
+            let statusItem = new PopupMenu.PopupMenuItem(_('Grupos Ativos'));
+            statusItem.connect('activate', () => {
+                const groupCount = this.tabManager.groups.size;
+                const windowCount = this.tabManager.windowGroups.size;
+                Main.notify(_(`App Group Tabs`),
+                    _(`${groupCount} grupos ativos com ${windowCount} janelas`));
+            });
+            this.menu.addMenuItem(statusItem);
 
-        // Separador
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            // Separador
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Item para alternar modo Ctrl/Meta
-        this.ctrlModeItem = new PopupMenu.PopupSwitchMenuItem(
-            _('Requerer Ctrl/Meta para Agrupar'), 
-            this.tabManager.requireCtrl
-        );
-        this.ctrlModeItem.connect('toggled', (item) => {
-            this.tabManager.setRequireCtrl(item.state);
-        });
-        this.menu.addMenuItem(this.ctrlModeItem);
+            // Item para alternar modo Ctrl/Meta
+            this.ctrlModeItem = new PopupMenu.PopupSwitchMenuItem(
+                _('Requerer Ctrl/Meta para Agrupar'),
+                this.tabManager.requireCtrl
+            );
+            this.ctrlModeItem.connect('toggled', (item) => {
+                this.tabManager.setRequireCtrl(item.state);
+            });
+            this.menu.addMenuItem(this.ctrlModeItem);
 
-        // Separador
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            // Separador
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Item para alternar grupos automáticos
-        this.startGroupsItem = new PopupMenu.PopupSwitchMenuItem(
-            _('Iniciar Janelas com Grupos'), 
-            this.tabManager.startWithGroups
-        );
-        this.startGroupsItem.connect('toggled', (item) => {
-            this.tabManager.setStartWithGroups(item.state);
-        });
-        this.menu.addMenuItem(this.startGroupsItem);
+            // Item para alternar grupos automáticos
+            this.startGroupsItem = new PopupMenu.PopupSwitchMenuItem(
+                _('Iniciar Janelas com Grupos'),
+                this.tabManager.startWithGroups
+            );
+            this.startGroupsItem.connect('toggled', (item) => {
+                this.tabManager.setStartWithGroups(item.state);
+            });
+            this.menu.addMenuItem(this.startGroupsItem);
 
-        // Separador
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+            // Separador
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Item para dissolver todos os grupos
-        let dissolveAllItem = new PopupMenu.PopupMenuItem(_('Dissolver Todos os Grupos'));
-        dissolveAllItem.connect('activate', () => {
-            this.tabManager.dissolveAllGroups();
-            Main.notify(_('App Group Tabs'), _('Todos os grupos foram dissolvidos'));
-        });
-        this.menu.addMenuItem(dissolveAllItem);
-    }
-});
+            // Item para dissolver todos os grupos
+            let dissolveAllItem = new PopupMenu.PopupMenuItem(_('Dissolver Todos os Grupos'));
+            dissolveAllItem.connect('activate', () => {
+                this.tabManager.dissolveAllGroups();
+                Main.notify(_('App Group Tabs'), _('Todos os grupos foram dissolvidos'));
+            });
+            this.menu.addMenuItem(dissolveAllItem);
+        }
+    });
 
 // Classe para gerenciar uma barra de abas
 const TabBar = GObject.registerClass(
@@ -182,23 +182,23 @@ const TabBar = GObject.registerClass(
             this._updateTabStyles();
         }
 
-    updatePosition() {
-        if (this.group.windows.length === 0) return;
-        
-        // Encontrar janelas não minimizadas
-        const visibleWindows = this.group.windows.filter(window => !window.minimized);
-        if (visibleWindows.length === 0) return;
-        
-        // Posicionar a barra acima da janela ativa não minimizada ou primeira janela visível
-        let activeWindow = this._activeTab;
-        if (!activeWindow || activeWindow.minimized) {
-            activeWindow = visibleWindows[0];
+        updatePosition() {
+            if (this.group.windows.length === 0) return;
+
+            // Encontrar janelas não minimizadas
+            const visibleWindows = this.group.windows.filter(window => !window.minimized);
+            if (visibleWindows.length === 0) return;
+
+            // Posicionar a barra acima da janela ativa não minimizada ou primeira janela visível
+            let activeWindow = this._activeTab;
+            if (!activeWindow || activeWindow.minimized) {
+                activeWindow = visibleWindows[0];
+            }
+
+            const frame = activeWindow.get_frame_rect();
+            this.set_position(frame.x, frame.y - 40);
+            this.set_size(frame.width, 40);
         }
-        
-        const frame = activeWindow.get_frame_rect();
-        this.set_position(frame.x, frame.y - 40);
-        this.set_size(frame.width, 40);
-    }
     });
 
 // Classe para gerenciar um grupo de janelas com abas
@@ -224,7 +224,8 @@ class WindowGroup {
             window.connect('size-changed', () => this._onWindowResized(window)),
             window.connect('focus', () => this._onWindowFocused(window)),
             window.connect('unmanaging', () => this.removeWindow(window)),
-            window.connect('notify::minimized', () => this._onWindowMinimizedChanged(window))
+            window.connect('notify::minimized', () => this._onWindowMinimizedChanged(window)),
+            window.connect('notify::has-focus', () => this._updateTabBarVisibility())
         ];
 
         this._signals.push(...signals.map(id => ({ window, id })));
@@ -260,24 +261,25 @@ class WindowGroup {
 
     _onWindowMoved(window) {
         // Só atualizar posição se a janela não estiver minimizada
-        if (!window.minimized && 
-            (window === this.tabBar._activeTab || 
-             (!this.tabBar._activeTab && this.windows[0] === window))) {
+        if (!window.minimized &&
+            (window === this.tabBar._activeTab ||
+                (!this.tabBar._activeTab && this.windows[0] === window))) {
             this.tabBar.updatePosition();
         }
     }
 
     _onWindowResized(window) {
         // Só atualizar posição se a janela não estiver minimizada
-        if (!window.minimized && 
-            (window === this.tabBar._activeTab || 
-             (!this.tabBar._activeTab && this.windows[0] === window))) {
+        if (!window.minimized &&
+            (window === this.tabBar._activeTab ||
+                (!this.tabBar._activeTab && this.windows[0] === window))) {
             this.tabBar.updatePosition();
         }
     }
 
     _onWindowFocused(window) {
         this.tabBar.setActiveWindow(window);
+        this._updateTabBarVisibility(); // Atualizar visibilidade quando janela ganha foco
         this.tabBar.updatePosition();
     }
 
@@ -287,11 +289,28 @@ class WindowGroup {
     }
 
     _updateTabBarVisibility() {
+        if (this.windows.length === 0) {
+            this.tabBar.visible = false;
+            return;
+        }
+
         // Verificar se há pelo menos uma janela não minimizada no grupo
         const hasVisibleWindow = this.windows.some(window => !window.minimized);
-        
-        // Só mostrar a barra se houver janelas e pelo menos uma não estiver minimizada
-        this.tabBar.visible = this.windows.length > 0 && hasVisibleWindow;
+        if (!hasVisibleWindow) {
+            this.tabBar.visible = false;
+            return;
+        }
+
+        // Nova lógica: ocultar se NENHUMA janela do grupo estiver em foco
+        const hasWindowInFocus = this.windows.some(window => window.has_focus());
+
+        this.tabBar.visible = hasWindowInFocus;
+
+        if (hasWindowInFocus) {
+            console.log('Tab bar shown (group has focused window)');
+        } else {
+            console.log('Tab bar hidden (no window in group has focus)');
+        }
     }
 
     dissolve() {
@@ -325,12 +344,12 @@ class TabManager {
         this._dropIndicator = null;
         this._draggedWindow = null;
         this._isCtrlPressed = false; // Estado atual do Ctrl/Meta
-        
+
         // Carregar configurações
         this._settings = extension.getSettings();
         this.requireCtrl = this._settings.get_boolean('require-ctrl');
         this.startWithGroups = this._settings.get_boolean('start-with-groups');
-        
+
         // Conectar mudanças de configuração
         this._settingsId = this._settings.connect('changed::require-ctrl', () => {
             this.requireCtrl = this._settings.get_boolean('require-ctrl');
@@ -366,6 +385,13 @@ class TabManager {
             })
         );
 
+        // Monitorar mudanças globais de foco para atualizar visibilidade
+        this._signals.push(
+            global.display.connect('notify::focus-window', () => {
+                this._onGlobalFocusChanged();
+            })
+        );
+
         // Conectar eventos de teclado para detectar Ctrl e Meta
         this._keyPressId = global.stage.connect('key-press-event', (actor, event) => {
             const keySymbol = event.get_key_symbol();
@@ -379,7 +405,7 @@ class TabManager {
             }
             return Clutter.EVENT_PROPAGATE;
         });
-        
+
         this._keyReleaseId = global.stage.connect('key-release-event', (actor, event) => {
             const keySymbol = event.get_key_symbol();
             if (keySymbol === Clutter.KEY_Control_L ||
@@ -414,17 +440,17 @@ class TabManager {
         }
 
         this._createDropIndicator();
-        
+
         // Método alternativo: usar um timer para verificar estado das teclas
         this._checkModifierTimer = setInterval(() => {
             const [x, y, mask] = global.get_pointer();
             const hasCtrlMod = (mask & Clutter.ModifierType.CONTROL_MASK) !== 0;
             const hasMetaMod = (mask & Clutter.ModifierType.META_MASK) !== 0;
             const hasSuperMod = (mask & Clutter.ModifierType.SUPER_MASK) !== 0;
-            
+
             // Considerar pressionado se qualquer um dos modificadores estiver ativo
             const hasModifier = hasCtrlMod || hasMetaMod || hasSuperMod;
-            
+
             if (hasModifier !== this._isCtrlPressed) {
                 this._isCtrlPressed = hasModifier;
             }
@@ -461,13 +487,20 @@ class TabManager {
             this._settings.disconnect(this._settingsId);
             this._settingsId = null;
         }
-        
+
         if (this._startGroupsSettingsId) {
             this._settings.disconnect(this._startGroupsSettingsId);
             this._startGroupsSettingsId = null;
         }
 
         this._destroyDropIndicator();
+    }
+
+    _onGlobalFocusChanged() {
+        // Atualizar visibilidade de todos os grupos quando o foco muda globalmente
+        this.groups.forEach(group => {
+            group._updateTabBarVisibility();
+        });
     }
 
     _onWindowCreated(window) {
@@ -502,7 +535,7 @@ class TabManager {
     _onWindowDropped(window) {
         // Verificar se precisa do Ctrl/Meta e se está pressionado
         const shouldGroup = !this.requireCtrl || this._isCtrlPressed;
-        
+
         if (shouldGroup) {
             const targetWindow = this._getWindowUnder(window);
             if (targetWindow && targetWindow !== window &&
@@ -639,7 +672,7 @@ class TabManager {
         this.requireCtrl = value;
         // Salvar nas configurações
         this._settings.set_boolean('require-ctrl', value);
-        
+
         // Esconder indicador se mudou para modo Ctrl/Meta e nenhuma tecla está pressionada
         if (this.requireCtrl && !this._isCtrlPressed) {
             this._hideDropIndicator();
@@ -650,13 +683,13 @@ class TabManager {
         this.startWithGroups = value;
         // Salvar nas configurações
         this._settings.set_boolean('start-with-groups', value);
-        
+
         // Se habilitou grupos automáticos, criar grupos para janelas sem grupo
         if (this.startWithGroups) {
             global.get_window_actors().forEach(actor => {
                 const window = actor.get_meta_window();
-                if (window && 
-                    window.window_type === Meta.WindowType.NORMAL && 
+                if (window &&
+                    window.window_type === Meta.WindowType.NORMAL &&
                     !this.windowGroups.has(window)) {
                     this._createIndividualGroup(window);
                 }
@@ -670,7 +703,7 @@ export default class AppGroupTabsExtension extends Extension {
     enable() {
         this._tabManager = new TabManager(this);
         this._tabManager.enable();
-        
+
         // Adicionar indicador na barra superior
         this._indicator = new Indicator(this._tabManager);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
@@ -681,7 +714,7 @@ export default class AppGroupTabsExtension extends Extension {
             this._tabManager.disable();
             this._tabManager = null;
         }
-        
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
