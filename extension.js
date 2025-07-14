@@ -275,7 +275,7 @@ const TabBar = GObject.registerClass(
                 if (oldState !== 'drag' && newState === 'drag') {
                     createDragClone(x, y);
                     // Tornar aba original semi-transparente
-                    tab.set_opacity(100);
+                    tab.set_opacity(0);
                 }
 
                 console.log(`[State Change] Aba "${window.get_title()}": ${oldState} -> ${newState}`);
