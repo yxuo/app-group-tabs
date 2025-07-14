@@ -39,6 +39,14 @@
     border-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Aba pressionada (mousedown) */
+.tab:active {
+    background-color: rgba(100, 100, 100, 0.9);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: scale(0.98);
+    transition-duration: 100ms;
+}
+
 /* Aba ativa */
 .tab.active {
     background-color: rgba(120, 120, 120, 0.7);
@@ -114,6 +122,14 @@
 .tab-bar.light-theme .tab:hover {
     background-color: rgb(216, 216, 216);
     border-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Aba pressionada (mousedown) - tema claro */
+.tab-bar.light-theme .tab:active {
+    background-color: rgb(200, 200, 200);
+    border-color: rgba(0, 0, 0, 0.3);
+    transform: scale(0.98);
+    transition-duration: 100ms;
 }
 
 .tab-bar.light-theme .tab.active {

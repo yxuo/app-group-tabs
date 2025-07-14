@@ -198,161 +198,10 @@ const TabBar = GObject.registerClass(
 
             // Estados possíveis: 'none', 'down', 'drag', 'up', 'click'
             let tabState = 'none';
-            let pressStartX = 0;
-            let pressStartY = 0;
-            let dragMotionId = null;
-            let dragReleaseId = null;
             let lastReorderedWindow = null; // Rastrear última aba reordenada para evitar loops
-            let dragClone = null; // Clone visual da aba durante o drag
-            let dragOffsetX = 0; // Offset do cursor em relação à aba
-            let dragOffsetY = 0;
             let lastReorderTime = 0; // Timestamp da última reordenação
             let lastCursorX = 0; // Última posição X do cursor para detectar direção
-            const dragThreshold = 15; // pixels
             const reorderCooldown = 150; // milliseconds entre reordenações
-
-            // Função para criar clone visual da aba
-            const createDragClone = (cursorX, cursorY) => {
-                if (dragClone) return; // Clone já existe
-
-                // Obter posição e dimensões da aba original
-                const [tabX, tabY] = tab.get_transformed_position();
-                const originalWidth = tab.get_width();
-                const originalHeight = tab.get_height();
-                
-                // Calcular offset do cursor em relação à posição da aba
-                dragOffsetX = cursorX - tabX;
-                dragOffsetY = cursorY - tabY;
-
-                // Buffer invisível para garantir captura do cursor
-                const buffer = 800;
-
-                // Criar clone visual com buffer expandido (para captura de eventos)
-                dragClone = new St.Button({
-                    style_class: 'tab tab-dragging',
-                    width: originalWidth + (buffer * 2),
-                    height: originalHeight + (buffer * 2),
-                    child: new St.Label({
-                        text: window.get_title() || 'Janela',
-                        x_align: Clutter.ActorAlign.CENTER
-                    })
-                });
-
-                // Aplicar estilo - buffer transparente para captura de eventos
-                dragClone.style = `
-                    padding: 0px;
-                    background: transparent;
-                    border: none;
-                    box-shadow: 0 0 10px rgba(0, 0, 0, 0);
-                `;
-
-                // Criar clone visual da aba (aparência normal da aba por cima)
-                const visualClone = new St.Button({
-                    style_class: 'tab tab-dragging',
-                    width: originalWidth,
-                    height: originalHeight,
-                    child: new St.Label({
-                        text: window.get_title() || 'Janela',
-                        x_align: Clutter.ActorAlign.CENTER
-                    })
-                });
-
-                // Posicionar o clone visual centralizado sobre o buffer
-                visualClone.set_position(buffer, buffer);
-                dragClone.add_child(visualClone);
-
-                // Adicionar o clone ao layoutManager para ficar sobre tudo
-                Main.layoutManager.addTopChrome(dragClone);
-
-                // Posicionar o clone para que o visual fique exatamente na posição da aba original
-                const cloneX = tabX - buffer - 2;
-                const cloneY = tabY - buffer - 4;
-                dragClone.set_position(cloneX, cloneY);
-
-                // Registrar o clone no GlobalShellManager se disponível
-                if (this.group.manager.extension._globalShellManager) {
-                    this.group.manager.extension._globalShellManager.registerDragClone(dragClone);
-                } else {
-                    console.warn(`[Drag Clone] GlobalShellManager não disponível, clone não registrado`);
-                }
-
-                console.log(`[Drag Clone] Clone criado para aba "${window.get_title()}" em (${cloneX}, ${cloneY}) - aba original em (${tabX}, ${tabY})`);
-            };
-
-            // Função para atualizar posição do clone
-            const updateDragClone = (cursorX, cursorY, restrictToTabBar = false) => {
-                if (!dragClone) return;
-
-                // Buffer invisível
-                const buffer = 800;
-
-                let finalX = cursorX - dragOffsetX - buffer - 2;
-                let finalY = cursorY - dragOffsetY - buffer - 4;
-
-                if (restrictToTabBar) {
-                    // Obter dimensões da barra de abas e da aba
-                    const [tabBarX, tabBarY] = this.get_transformed_position();
-                    const tabBarWidth = this.get_width();
-                    const tabBarHeight = this.get_height();
-                    const tabWidth = tab.get_width();
-
-                    // Restringir X com margem de 4px nas bordas
-                    const minX = tabBarX + 4 - buffer - 2;
-                    const maxX = tabBarX + tabBarWidth - tabWidth - 4 - buffer - 2 - 48;
-
-                    if (finalX < minX) finalX = minX;
-                    if (finalX > maxX) finalX = maxX;
-
-                    // Y é fixo, não permite mover para cima ou para baixo
-                    finalY = tabBarY - buffer + 1;
-                }
-
-                dragClone.set_position(finalX, finalY);
-            };
-
-            // Função para destruir clone visual
-            const destroyDragClone = () => {
-                if (dragClone) {
-                    // Desregistrar o clone do GlobalShellManager se disponível
-                    if (this.group.manager.extension._globalShellManager) {
-                        this.group.manager.extension._globalShellManager.unregisterDragClone(dragClone);
-                    }
-
-                    Main.layoutManager.removeChrome(dragClone);
-                    try {
-                        dragClone.destroy();
-                    } catch (e) { }
-                    dragClone = null;
-                    console.log(`[Drag Clone] Clone destruído para aba "${window.get_title()}"`);
-                }
-            };
-
-            // Função para atualizar estado
-            const updateState = (newState, event) => {
-                const oldState = tabState;
-                tabState = newState;
-                const [x, y] = event ? event.get_coords() : [0, 0];
-
-                // Resetar lastReorderedWindow quando sair do estado de drag
-                if (oldState === 'drag' && newState !== 'drag') {
-                    lastReorderedWindow = null;
-                    // Destruir clone quando sair do drag
-                    destroyDragClone();
-                    // Tornar aba original visível novamente
-                    tab.set_opacity(255);
-                    // Esconder indicador de drop ao sair do drag
-                    this.group.manager._hideDropIndicator();
-                }
-
-                // Criar clone quando entrar em drag
-                if (oldState !== 'drag' && newState === 'drag') {
-                    createDragClone(x, y);
-                    // Tornar aba original semi-transparente
-                    tab.set_opacity(0);
-                }
-
-                console.log(`[State Change] Aba "${window.get_title()}": ${oldState} -> ${newState}`);
-            };
 
             // Função para encontrar a aba sob o cursor
             const getTabUnderCursor = (x, y) => {
@@ -397,94 +246,58 @@ const TabBar = GObject.registerClass(
                 this._tabContainer.insert_child_at_index(draggedTab, targetIndex);
 
                 console.log(`[Reorder] Aba "${draggedWindow.get_title()}" movida para posição da aba "${targetWindow.get_title()}"`);
-            };
-
-            // Conectar eventos de mouse down
+            };            // Conectar eventos de mouse down
             tab.connect('button-press-event', (actor, event) => {
                 if (event.get_button() === 1) { // Botão esquerdo do mouse
                     const [x, y] = event.get_coords();
-                    pressStartX = x;
-                    pressStartY = y;
-
-                    updateState('down', event);
+                    tabState = 'down';
+                    
+                    // Adicionar estilo visual de mousedown
+                    tab.add_style_class_name('pressed');
 
                     // Conectar eventos globais para detectar movimento
-                    dragMotionId = global.stage.connect('motion-event', (stage, motionEvent) => {
-                        // Log de comparação de estados: Aba vs GSM
-                        const gsmState = this.group.manager.extension._globalShellManager?._lastButtonState?.event || 'none';
-                        console.log(`[State Compare] Aba: "${tabState}" | GSM: "${gsmState}" | Window: "${window.get_title()}"`);
+                    const dragMotionId = global.stage.connect('motion-event', (stage, motionEvent) => {
+                        const gsm = this.group.manager.extension._globalShellManager;
+                        const gsmState = gsm?._lastButtonState?.event || 'none';
 
-                        if (tabState === 'down') {
+                        if (tabState === 'down' && gsmState === 'drag') {
+                            // GSM detectou drag - criar clone e mudar para modo drag
+                            tabState = 'drag';
+                            gsm.createTabDragClone(tab, window, this, x, y);
+                            tab.set_opacity(0); // Invisível durante drag
+
+                            console.log(`[TabBar] Drag iniciado para aba "${window.get_title()}"`);
+                        } else if (tabState === 'drag' && gsmState === 'drag') {
+                            // Durante o drag, processar reordenação se estiver sobre a barra
                             const [currentX, currentY] = motionEvent.get_coords();
-                            const deltaX = Math.abs(currentX - pressStartX);
-                            const deltaY = Math.abs(currentY - pressStartY);
-
-                            // Verificar se moveu mais que o threshold
-                            if (deltaX > dragThreshold || deltaY > dragThreshold) {
-                                updateState('drag', motionEvent);
-                                // Resetar controle de reordenação ao iniciar novo drag
-                                lastReorderedWindow = null;
-                                // Adicionar classe visual para indicar drag
-                                tab.add_style_class_name('dragging');
-                            }
-                        } else if (tabState === 'drag') {
-                            // Durante o drag, atualizar posição do clone
-                            const [currentX, currentY] = motionEvent.get_coords();
-
-                            // Verificar se está sobre a barra de abas para reordenação ou fora para agrupamento
                             const [tabBarX, tabBarY] = this.get_transformed_position();
                             const tabBarWidth = this.get_width();
                             const tabBarHeight = this.get_height();
 
-                            // Verificar se o cursor está dentro da área da barra de abas
                             const isOverTabBar = currentX >= tabBarX && currentX <= tabBarX + tabBarWidth &&
                                                 currentY >= tabBarY && currentY <= tabBarY + tabBarHeight;
 
-                            // Restringir movimento à barra se estiver sobre ela
-                            updateDragClone(currentX, currentY, isOverTabBar);
-
-                            console.log(`[Drag Movement] Cursor: (${currentX}, ${currentY}) | Barra: (${tabBarX}, ${tabBarY}, ${tabBarWidth}x${tabBarHeight}) | Sobre barra: ${isOverTabBar}`);
-
-                            // Verificar se o state global não é 'drag'
-                            const gsm = this.group.manager.extension._globalShellManager;
-                            const gsmState = gsm?._lastButtonState?.event || 'none';
-                            if (gsmState !== 'drag') {
-                                gsm.destroyAllDragClones();
-                                updateState('up', releaseEvent);
-                                tab._updateTabStyles();
-                            }
-
                             if (isOverTabBar) {
-                                // Lógica de reordenação dentro da barra (código existente)
+                                // Lógica de reordenação dentro da barra
                                 const tabUnder = getTabUnderCursor(currentX, currentY);
                                 const currentTime = Date.now();
 
                                 if (tabUnder && tabUnder.window !== window && tabUnder.passedHalf) {
-                                    // Lógica melhorada de reordenação com cooldown e detecção de direção
                                     const timeSinceLastReorder = currentTime - lastReorderTime;
-                                    const cursorMovingRight = currentX > lastCursorX;
-                                    const cursorMovingLeft = currentX < lastCursorX;
-
-                                    // Permitir reordenação se:
-                                    // 1. É uma aba diferente da última reordenada OU
-                                    // 2. Passou o tempo de cooldown E mudou de direção
                                     const isDifferentTab = lastReorderedWindow !== tabUnder.window;
                                     const hasCooldownPassed = timeSinceLastReorder > reorderCooldown;
 
                                     if (isDifferentTab || hasCooldownPassed) {
-                                        console.log(`[Reorder Decision] Movendo "${window.get_title()}" para posição de "${tabUnder.window.get_title()}" (diferente: ${isDifferentTab}, cooldown: ${hasCooldownPassed})`);
+                                        console.log(`[Reorder Decision] Movendo "${window.get_title()}" para posição de "${tabUnder.window.get_title()}"`);
                                         reorderTab(window, tabUnder.window);
                                         lastReorderedWindow = tabUnder.window;
                                         lastReorderTime = currentTime;
-                                    } else {
-                                        console.log(`[Reorder Skip] Aguardando cooldown para "${tabUnder.window.get_title()}" (${reorderCooldown - timeSinceLastReorder}ms restantes)`);
                                     }
                                 } else {
                                     // Se não está sobre nenhuma aba válida, permitir reset mais rápido
                                     if (lastReorderedWindow && !tabUnder) {
                                         const timeSinceLastReorder = currentTime - lastReorderTime;
                                         if (timeSinceLastReorder > reorderCooldown / 2) {
-                                            console.log(`[Reorder Reset] Cursor fora das abas, resetando controle de reordenação`);
                                             lastReorderedWindow = null;
                                         }
                                     }
@@ -497,11 +310,9 @@ const TabBar = GObject.registerClass(
                                 if (targetWindow) {
                                     // Mostrar indicador de drop na janela alvo
                                     this.group.manager._showDropIndicator(targetWindow);
-                                    console.log(`[Tab Drag External] Aba "${window.get_title()}" sobre janela "${targetWindow.get_title()}"`);
                                 } else {
                                     // Esconder indicador se não há janela alvo
                                     this.group.manager._hideDropIndicator();
-                                    console.log(`[Tab Drag External] Aba "${window.get_title()}" em área vazia`);
                                 }
 
                                 // Resetar controle de reordenação quando fora da barra
@@ -510,24 +321,25 @@ const TabBar = GObject.registerClass(
 
                             // Atualizar posição do cursor para detecção de direção
                             lastCursorX = currentX;
-
-                            // console.log(`[Drag Movement] Aba "${window.get_title()}" movendo para (${currentX}, ${currentY})`);
+                        } else if (gsmState !== 'drag' && tabState === 'drag') {
+                            // GSM saiu do drag - finalizar
+                            tabState = 'up';
+                            tab.set_opacity(255); // Restaurar opacidade
+                            this.group.manager._hideDropIndicator();
+                            global.stage.disconnect(dragMotionId);
                         }
+                        
                         return Clutter.EVENT_PROPAGATE;
                     });
 
                     // Conectar evento global de mouse up
-                    dragReleaseId = global.stage.connect('button-release-event', (stage, releaseEvent) => {
+                    const dragReleaseId = global.stage.connect('button-release-event', (stage, releaseEvent) => {
                         if (releaseEvent.get_button() === 1) {
-                            // Limpar event listeners primeiro
-                            if (dragMotionId) {
-                                global.stage.disconnect(dragMotionId);
-                                dragMotionId = null;
-                            }
-                            if (dragReleaseId) {
-                                global.stage.disconnect(dragReleaseId);
-                                dragReleaseId = null;
-                            }
+                            // Remover estilo visual de mousedown
+                            tab.remove_style_class_name('pressed');
+                            
+                            global.stage.disconnect(dragMotionId);
+                            global.stage.disconnect(dragReleaseId);
 
                             if (tabState === 'drag') {
                                 // Verificar se está fora da barra de abas para agrupamento/separação
@@ -551,39 +363,35 @@ const TabBar = GObject.registerClass(
                                         // Separar do grupo atual (apenas se o grupo tem mais de 1 janela)
                                         console.log(`[Tab Drop] Separando aba "${window.get_title()}" do grupo atual`);
                                         this._separateWindowFromGroup(window);
-                                    } else {
-                                        console.log(`[Tab Drop] Ação não aplicável para aba "${window.get_title()}"`);
                                     }
 
                                     // Esconder indicador de drop
                                     this.group.manager._hideDropIndicator();
-                                } else {
-                                    console.log(`[Tab Drop] Aba "${window.get_title()}" solta dentro da barra - mantendo no grupo`);
                                 }
 
-                                updateState('up', releaseEvent);
+                                tab.set_opacity(255); // Restaurar opacidade
                                 console.log(`[Drag End] Drag finalizado na aba "${window.get_title()}"`);
-                                // Remover classe visual de drag
-                                tab.remove_style_class_name('dragging');
                             } else if (tabState === 'down') {
-                                updateState('click', releaseEvent);
+                                // Se ainda estava em 'down', foi um clique simples
                                 console.log(`[Click] Clique registrado na aba "${window.get_title()}"`);
-                                // Ativar a aba apenas se foi um clique
                                 this._activateTab(window);
-                                // Evitar bug de continaur movendo a aba após o drag
-                                tab.remove_style_class_name('dragging');
                             } else {
-                                updateState('up', releaseEvent);
+                                // Estado 'up' ou outros casos - também tratar como clique
+                                const gsm = this.group.manager.extension._globalShellManager;
+                                const gsmState = gsm?._lastButtonState?.event || 'none';
+                                
+                                if (gsmState !== 'drag') {
+                                    console.log(`[Click Fallback] Clique detectado via fallback na aba "${window.get_title()}" (estado: ${tabState}, GSM: ${gsmState})`);
+                                    this._activateTab(window);
+                                }
                             }
 
-                            // Reset para estado inicial após um pequeno delay
-                            setTimeout(() => {
-                                tabState = 'none';
-                                console.log(`[State Reset] Aba "${window.get_title()}" voltou ao estado 'none'`);
-                            }, 100);
+                            // Reset para estado inicial
+                            tabState = 'none';
                         }
                         return Clutter.EVENT_PROPAGATE;
                     });
+
                 } else if (event.get_button() === 3) { // Botão direito do mouse
                     console.log(`[Right Click] Botão direito detectado na aba "${window.get_title()}"`);
                     // Criar menu de contexto
@@ -591,26 +399,6 @@ const TabBar = GObject.registerClass(
                     return Clutter.EVENT_STOP;
                 }
                 return Clutter.EVENT_STOP;
-            });
-
-            // Conectar evento de mouse up local (backup)
-            tab.connect('button-release-event', (actor, event) => {
-                if (event.get_button() === 1) {
-                    if (tabState === 'drag') {
-                        updateState('up', event);
-                        console.log(`[Drag End Local] Drag finalizado na aba "${window.get_title()}"`);
-                        // Remover classe visual de drag
-                        tab.remove_style_class_name('dragging');
-                    } else if (tabState === 'down') {
-                        updateState('click', event);
-                        console.log(`[Click Local] Clique registrado na aba "${window.get_title()}"`);
-                        // Ativar a aba apenas se foi um clique
-                        this._activateTab(window);
-                    } else {
-                        updateState('up', event);
-                    }
-                }
-                return Clutter.EVENT_PROPAGATE;
             });
 
             this.tabs.set(window, tab);
@@ -1364,7 +1152,8 @@ class WindowGroup {
 
 // Manager global para capturar eventos do shell E desktop
 class GlobalShellManager {
-    constructor() {
+    constructor(tabManager = null) {
+        this.tabManager = tabManager;
         this._globalMouseMotionId = null;
         this._globalButtonPressId = null;
         this._globalButtonReleaseId = null;
@@ -1374,6 +1163,14 @@ class GlobalShellManager {
         this._dragThreshold = 15;
         this._activeDragClones = new Set(); // Rastrear clones ativos
         this._activeContextMenus = new Set(); // Rastrear menus de contexto ativos
+
+        // Propriedades para gerenciar clone de drag de aba
+        this._dragClone = null;
+        this._draggedTab = null;
+        this._dragOffsetX = 0;
+        this._dragOffsetY = 0;
+        this._draggedWindow = null;
+        this._sourceTabBar = null;
     }
 
     enable() {
@@ -1382,15 +1179,12 @@ class GlobalShellManager {
         // Listener global de movimento do mouse (para áreas do Shell)
         this._globalMouseMotionId = global.stage.connect('motion-event', (stage, event) => {
             const [x, y] = event.get_coords();
-            // console.log(`[GMM - Shell] Cursor: (${x}, ${y}), event: ${this._lastButtonState?.event}`);
             this._lastMousePosition = { x, y };
 
-            // Verificar se está em estado 'down' e detectar movimento para 'drag'
+            // Detect drag
             if (this._lastButtonState?.event === 'down' && this._lastButtonState?.pressed) {
                 const deltaX = Math.abs(x - this._lastButtonState.x);
                 const deltaY = Math.abs(y - this._lastButtonState.y);
-
-                // Verificar se moveu mais que o threshold para considerar drag
                 if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
                     this._lastButtonState = {
                         button: this._lastButtonState.button,
@@ -1399,10 +1193,9 @@ class GlobalShellManager {
                         y,
                         event: 'drag'
                     };
-                    console.log(`[Global Shell Manager] Estado mudou para 'drag' em (${x}, ${y})`);
+                    console.log(`[GSM - Shell] evento: drag`);
                 }
             }
-
             return Clutter.EVENT_PROPAGATE;
         });
 
@@ -1410,19 +1203,15 @@ class GlobalShellManager {
         this._globalButtonPressId = global.stage.connect('button-press-event', (stage, event) => {
             const [x, y] = event.get_coords();
             const button = event.get_button();
-            console.log(`[Global Button Press1 - Shell] Botão ${button} pressionado em (${x}, ${y})`);
             this._lastButtonState = { button, pressed: true, x, y, event: 'down' };
-
-            // Verificar se deve fechar menus de contexto ativos
+            // console.log(`[GSM - Shell] evento: down`);
+            // Fechar menus de contexto se necessário
             if (this._activeContextMenus.size > 0) {
                 const isInsideMenu = this._isClickInsideActiveMenu(x, y);
                 if (!isInsideMenu) {
-                    console.log(`[GSM] Clique fora dos menus detectado, fechando menus ativos`);
                     this.closeAllContextMenus();
                 }
             }
-
-            // Destruir clones ativos quando novo botão for pressionado
             this.destroyAllDragClones();
             return Clutter.EVENT_PROPAGATE;
         });
@@ -1431,13 +1220,11 @@ class GlobalShellManager {
         this._globalButtonReleaseId = global.stage.connect('button-release-event', (stage, event) => {
             const [x, y] = event.get_coords();
             const button = event.get_button();
-            console.log(`[Global Button Release - Shell] Botão ${button} solto em (${x}, ${y})`);
             if (this._lastButtonState?.button === button &&
                 (this._lastButtonState?.event === 'down' || this._lastButtonState?.event === 'drag')) {
                 this._lastButtonState = { button, pressed: false, x, y, event: 'up' };
-                console.log(`[Global Shell Manager] Estado mudou para 'up' em (${x}, ${y})`);
+                // console.log(`[GSM - Shell] evento: up`);
             }
-            // Destruir clones ativos quando botão for solto
             this.destroyAllDragClones();
             return Clutter.EVENT_PROPAGATE;
         });
@@ -1446,23 +1233,24 @@ class GlobalShellManager {
         this._mousePollingTimer = setInterval(() => {
             const [x, y, mask] = global.get_pointer();
 
-            // Verificar se a posição mudou
+            // Detect click (release after down without drag)
+            // if (this._lastButtonState?.event === 'down' && !((mask & Clutter.ModifierType.BUTTON1_MASK) !== 0)) {
+            //     // Only log click if there was no drag
+            //     console.log(`[GSM - Shell] evento1: click`);
+            // }
+
+            // Detect position change
             if (x !== this._lastMousePosition.x || y !== this._lastMousePosition.y) {
-                // console.log(`[GMM - Universal] Cursor: (${x}, ${y})`);
                 this._lastMousePosition = { x, y };
             }
 
-            // Verificar estado dos botões do mouse
+            // Estado dos botões
             const leftPressed = (mask & Clutter.ModifierType.BUTTON1_MASK) !== 0;
-            const middlePressed = (mask & Clutter.ModifierType.BUTTON2_MASK) !== 0;
             const rightPressed = (mask & Clutter.ModifierType.BUTTON3_MASK) !== 0;
 
-            // Detectar mudanças de estado dos botões
+            // Left button
             if (leftPressed && (!this._lastButtonState || !this._lastButtonState.pressed || this._lastButtonState.button !== 1)) {
-                console.log(`[Global Button Press - Universal] Botão 1 pressionado em (${x}, ${y})`);
-                // Destruir clones ativos quando novo botão for pressionado
                 this.destroyAllDragClones();
-                // Fechar menus de contexto ativos - verifica se o clique está dentro de algum menu
                 if (this._activeContextMenus.size > 0) {
                     const isInsideMenu = this._isClickInsideActiveMenu(x, y);
                     if (!isInsideMenu) {
@@ -1470,38 +1258,49 @@ class GlobalShellManager {
                     }
                 }
                 this._lastButtonState = { button: 1, pressed: true, x, y, event: 'down' };
+                // console.log(`[GSM - Shell] evento: down`);
             } else if (!leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1) {
-                console.log(`[Global Button Release - Universal] Botão 1 solto em (${x}, ${y})`);
+                if (this._lastButtonState.event === 'down') {
+                  console.log(`[GSM - Shell] evento: click`);
+                  // Selecionar aba se o cursor estiver sobre uma aba
+                  this._handleClickEvent(x, y);
+                }
                 this._lastButtonState = { button: 1, pressed: false, x, y, event: 'up' };
-                // Destruir clones ativos quando botão for solto
+                // console.log(`[GSM - Shell] evento: up`);
                 this.destroyAllDragClones();
             } else if (leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1 && this._lastButtonState.event === 'down') {
-                // Verificar se há movimento suficiente para considerar drag
                 const deltaX = Math.abs(x - this._lastButtonState.x);
                 const deltaY = Math.abs(y - this._lastButtonState.y);
                 if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
-                    console.log(`[Global Drag - Universal] Botão 1 em drag em (${x}, ${y})`);
                     this._lastButtonState = { button: 1, pressed: true, x, y, event: 'drag' };
+                    console.log(`[GSM - Shell] evento: drag`);
                 }
             }
 
+            // Right button
             if (rightPressed && (!this._lastButtonState || !this._lastButtonState.pressed || this._lastButtonState.button !== 3)) {
-                console.log(`[Global Button Press - Universal] Botão 3 pressionado em (${x}, ${y})`);
                 this._lastButtonState = { button: 3, pressed: true, x, y, event: 'down' };
+                // console.log(`[GSM - Shell] evento: down`);
             } else if (!rightPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 3) {
-                console.log(`[Global Button Release - Universal] Botão 3 solto em (${x}, ${y})`);
+                if (this._lastButtonState.event === 'down') {
+                  console.log(`[GSM - Shell] evento3: click`);
+                }
                 this._lastButtonState = { button: 3, pressed: false, x, y, event: 'up' };
+                // console.log(`[GSM - Shell] evento: up`);
             } else if (rightPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 3 && this._lastButtonState.event === 'down') {
-                // Verificar se há movimento suficiente para considerar drag
                 const deltaX = Math.abs(x - this._lastButtonState.x);
                 const deltaY = Math.abs(y - this._lastButtonState.y);
                 if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
-                    console.log(`[Global Drag - Universal] Botão 3 em drag em (${x}, ${y})`);
                     this._lastButtonState = { button: 3, pressed: true, x, y, event: 'drag' };
+                    console.log(`[GSM - Shell] evento: drag`);
                 }
             }
 
-        }, 16); // ~60 FPS para rastreamento suave
+            // Atualizar clone de aba se estiver em drag
+          if (this._lastButtonState?.event === 'drag' && this._dragClone) {
+                this.updateTabDragClone(x, y);
+            }
+        }, 16);
 
         console.log('[Global Shell Manager] Listeners globais habilitados com sucesso');
     }
@@ -1543,7 +1342,10 @@ class GlobalShellManager {
 
     // Método para destruir todos os clones de drag ativos
     destroyAllDragClones() {
-        console.log(`[GSM] Destruindo ${this._activeDragClones.size} clones. State: ${this._lastButtonState?.event || 'none'}`);
+        // Destruir clone de aba específico
+        this.destroyTabDragClone();
+
+        // Destruir outros clones
         this._activeDragClones.forEach(clone => {
             try {
                 if (clone) {
@@ -1622,6 +1424,200 @@ class GlobalShellManager {
             }
         }
         return false;
+    }
+
+    // Método para lidar com eventos de clique e detectar abas
+    _handleClickEvent(x, y) {
+        // Buscar por abas em todos os grupos ativos
+        const tabManager = this._getTabManager();
+        if (!tabManager) return;
+
+        for (const group of tabManager.groups) {
+            if (!group.tabBar || !group.tabBar.visible) continue;
+
+            // Verificar se o clique está sobre a barra de abas
+            const [tabBarX, tabBarY] = group.tabBar.get_transformed_position();
+            const tabBarWidth = group.tabBar.get_width();
+            const tabBarHeight = group.tabBar.get_height();
+
+            const isOverTabBar = x >= tabBarX && x <= tabBarX + tabBarWidth &&
+                                y >= tabBarY && y <= tabBarY + tabBarHeight;
+
+            if (isOverTabBar) {
+                // Verificar qual aba específica foi clicada
+                for (const [window, tab] of group.tabBar.tabs) {
+                    const [tabX, tabY] = tab.get_transformed_position();
+                    const tabWidth = tab.get_width();
+                    const tabHeight = tab.get_height();
+
+                    const isOverTab = x >= tabX && x <= tabX + tabWidth &&
+                                     y >= tabY && y <= tabY + tabHeight;
+
+                    if (isOverTab) {
+                        console.log(`[GSM Click] Ativando aba "${window.get_title()}" via clique global`);
+                        group.tabBar._activateTab(window);
+                        return; // Sair após encontrar a aba
+                    }
+                }
+            }
+        }
+    }
+
+    // Método auxiliar para obter o TabManager
+    _getTabManager() {
+        return this.tabManager;
+    }
+
+    // ===== MÉTODOS PARA GERENCIAMENTO DE CLONE DE DRAG DE ABA =====
+
+    // Criar clone visual da aba para drag
+    createTabDragClone(tab, window, tabBar, cursorX, cursorY) {
+        // Destruir clone existente se houver
+        this.destroyTabDragClone();
+
+        // Obter posição e dimensões da aba original
+        const [tabX, tabY] = tab.get_transformed_position();
+        const originalWidth = tab.get_width();
+        const originalHeight = tab.get_height();
+
+        // Calcular offset do cursor em relação à posição da aba
+        this._dragOffsetX = cursorX - tabX;
+        this._dragOffsetY = cursorY - tabY;
+
+        // Buffer invisível para garantir captura do cursor
+        const buffer = 800;
+
+        // Criar clone visual com buffer expandido (para captura de eventos)
+        this._dragClone = new St.Button({
+            style_class: 'tab tab-dragging',
+            width: originalWidth + (buffer * 2),
+            height: originalHeight + (buffer * 2),
+            child: new St.Label({
+                text: window.get_title() || 'Janela',
+                x_align: Clutter.ActorAlign.CENTER
+            })
+        });
+
+        // Aplicar estilo - buffer transparente para captura de eventos
+        this._dragClone.style = `
+            padding: 0px;
+            background: transparent;
+            border: none;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0);
+        `;
+
+        // Criar clone visual da aba (aparência normal da aba por cima)
+        const visualClone = new St.Button({
+            style_class: 'tab tab-dragging',
+            width: originalWidth,
+            height: originalHeight,
+            child: new St.Label({
+                text: window.get_title() || 'Janela',
+                x_align: Clutter.ActorAlign.CENTER
+            })
+        });
+
+        // Posicionar o clone visual centralizado sobre o buffer
+        visualClone.set_position(buffer, buffer);
+        this._dragClone.add_child(visualClone);
+
+        // Adicionar o clone ao layoutManager para ficar sobre tudo
+        Main.layoutManager.addTopChrome(this._dragClone);
+
+        // Posicionar o clone para que o visual fique exatamente na posição da aba original
+        const cloneX = tabX - buffer - 2;
+        const cloneY = tabY - buffer - 4;
+        this._dragClone.set_position(cloneX, cloneY);
+
+        // Armazenar referências
+        this._draggedTab = tab;
+        this._draggedWindow = window;
+        this._sourceTabBar = tabBar;
+
+        // Registrar o clone
+        this.registerDragClone(this._dragClone);
+
+        console.log(`[GSM] Clone de aba criado para "${window.get_title()}" em (${cloneX}, ${cloneY})`);
+    }
+
+    // Atualizar posição do clone de drag
+    updateTabDragClone(cursorX, cursorY) {
+        if (!this._dragClone) return;
+
+        // Buffer invisível
+        const buffer = 800;
+
+        let finalX = cursorX - this._dragOffsetX - buffer - 2;
+        let finalY = cursorY - this._dragOffsetY - buffer - 4;
+
+        // Verificar se deve restringir à barra de abas
+        if (this._sourceTabBar) {
+            const [tabBarX, tabBarY] = this._sourceTabBar.get_transformed_position();
+            const tabBarWidth = this._sourceTabBar.get_width();
+            const tabBarHeight = this._sourceTabBar.get_height();
+
+            // Calcular posição do clone visual (considerando o buffer)
+            const cloneVisualX = finalX + buffer + 2;
+            const cloneVisualY = finalY + buffer + 4;
+            const cloneVisualWidth = this._draggedTab.get_width();
+            const cloneVisualHeight = this._draggedTab.get_height();
+
+            // Verificar se o clone visual está dentro da barra de abas
+            const isCloneOverTabBar = cloneVisualX >= tabBarX &&
+                cloneVisualX + cloneVisualWidth <= tabBarX + tabBarWidth &&
+                cloneVisualY >= tabBarY &&
+                cloneVisualY + cloneVisualHeight <= tabBarY + tabBarHeight;
+
+            // Se estiver sobre a barra, aplicar restrições
+            if (isCloneOverTabBar) {
+                // Calcular limites considerando o buffer do clone e dimensões da aba
+                const minX = tabBarX - buffer - 2;
+                const maxX = tabBarX + tabBarWidth - cloneVisualWidth - buffer - 2;
+                const minY = tabBarY - buffer - 4;
+                const maxY = tabBarY + tabBarHeight - cloneVisualHeight - buffer - 4;
+
+                // Aplicar restrições em todas as direções
+                if (finalX < minX) finalX = minX;
+                if (finalX > maxX) finalX = maxX;
+                if (finalY < minY) finalY = minY;
+                if (finalY > maxY) finalY = maxY;
+            }
+        }
+
+        this._dragClone.set_position(finalX, finalY);
+
+        console.log(`[GSM] Clone de aba reposicionado para (${finalX}, ${finalY}) seguindo cursor em (${cursorX}, ${cursorY})`);
+    }
+
+    // Destruir clone de drag de aba
+    destroyTabDragClone() {
+        if (this._dragClone) {
+            this.unregisterDragClone(this._dragClone);
+            Main.layoutManager.removeChrome(this._dragClone);
+            try {
+                this._dragClone.destroy();
+            } catch (e) { }
+            this._dragClone = null;
+
+            // Limpar referências
+            this._draggedTab = null;
+            this._draggedWindow = null;
+            this._sourceTabBar = null;
+            this._dragOffsetX = 0;
+            this._dragOffsetY = 0;
+
+            console.log(`[GSM] Clone de aba destruído`);
+        }
+    }
+
+    // Obter informações do drag atual
+    getDragInfo() {
+        return {
+            isDragging: this._dragClone !== null,
+            draggedWindow: this._draggedWindow,
+            draggedTab: this._draggedTab,
+            sourceTabBar: this._sourceTabBar
+        };
     }
 }
 
@@ -1863,7 +1859,7 @@ class TabManager {
         // Usar posição real do cursor ao invés do centro da janela arrastada
         const [cursorX, cursorY] = global.get_pointer();
 
-        console.log(`[Window Detection] Buscando janela sob cursor em (${cursorX}, ${cursorY})`);
+        //console.log(`[Window Detection] Buscando janela sob cursor em (${cursorX}, ${cursorY})`);
 
         // Obter janelas ordenadas por stack order (mais alta primeiro)
         const workspace = global.workspace_manager.get_active_workspace();
@@ -1878,15 +1874,22 @@ class TabManager {
             .sort((a, b) => {
                 // Ordenar por stack order - janelas mais altas primeiro
                 return b.get_stable_sequence() - a.get_stable_sequence();
+            })
+            .filter(window => {
+                const invalidNames = ['@!0,0;BDHF'];
+                const title = window.get_title() || '';
+                const hasInvalidName = invalidNames.some(name => title.includes(name));
+                return !hasInvalidName
             });
 
-        console.log(`[Window Detection] Verificando ${windows.length} janelas ordenadas por stack order`);
+        const windowNames = windows.map(w => w.get_title() || '-').join('", "');
+        console.log(`[Window Detection] Verificando ${windows.length} janelas: [${windowNames}]`);
 
         // Verificar janelas na posição do cursor, começando pela mais alta
         for (const window of windows) {
             const rect = window.get_frame_rect();
 
-            console.log(`[Window Detection] Testando "${window.get_title()}" - rect(${rect.x}, ${rect.y}, ${rect.width}x${rect.height})`);
+            //console.log(`[Window Detection] Testando "${window.get_title()}" - rect(${rect.x}, ${rect.y}, ${rect.width}x${rect.height})`);
 
             // Verificar se o cursor está sobre esta janela
             if (cursorX >= rect.x && cursorX <= rect.x + rect.width &&
@@ -2164,8 +2167,8 @@ export default class AppGroupTabsExtension extends Extension {
         this._tabManager = new TabManager(this);
         this._tabManager.enable();
 
-        // Inicializar o gerenciador global de eventos do shell
-        this._globalShellManager = new GlobalShellManager();
+        // Inicializar o gerenciador global de eventos do shell com referência ao TabManager
+        this._globalShellManager = new GlobalShellManager(this._tabManager);
         this._globalShellManager.enable();
 
         // Adicionar indicador na barra superior
