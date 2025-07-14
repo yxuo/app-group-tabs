@@ -1402,29 +1402,68 @@ class TabManager {
     }
 
     _getWindowUnder(draggedWindow) {
-        const draggedRect = draggedWindow.get_frame_rect();
-        const draggedCenter = {
-            x: draggedRect.x + draggedRect.width / 2,
-            y: draggedRect.y + draggedRect.height / 2
-        };
+        // Usar posição real do cursor ao invés do centro da janela arrastada
+        const [cursorX, cursorY] = global.get_pointer();
 
-        const windows = global.get_window_actors()
-            .map(actor => actor.get_meta_window())
+        console.log(`[Window Detection] Buscando janela sob cursor em (${cursorX}, ${cursorY})`);
+
+        // Obter janelas ordenadas por stack order (mais alta primeiro)
+        const workspace = global.workspace_manager.get_active_workspace();
+        const windows = workspace.list_windows()
             .filter(window =>
                 window &&
                 window !== draggedWindow &&
                 window.window_type === Meta.WindowType.NORMAL &&
-                window.showing_on_its_workspace()
-            );
+                window.showing_on_its_workspace() &&
+                !window.minimized
+            )
+            .sort((a, b) => {
+                // Ordenar por stack order - janelas mais altas primeiro
+                return b.get_stable_sequence() - a.get_stable_sequence();
+            });
 
+        console.log(`[Window Detection] Verificando ${windows.length} janelas ordenadas por stack order`);
+
+        // Verificar janelas na posição do cursor, começando pela mais alta
         for (const window of windows) {
             const rect = window.get_frame_rect();
-            if (draggedCenter.x >= rect.x && draggedCenter.x <= rect.x + rect.width &&
-                draggedCenter.y >= rect.y && draggedCenter.y <= rect.y + rect.height) {
-                return window;
+
+            console.log(`[Window Detection] Testando "${window.get_title()}" - rect(${rect.x}, ${rect.y}, ${rect.width}x${rect.height})`);
+
+            // Verificar se o cursor está sobre esta janela
+            if (cursorX >= rect.x && cursorX <= rect.x + rect.width &&
+                cursorY >= rect.y && cursorY <= rect.y + rect.height) {
+
+                console.log(`[Window Detection] Cursor está sobre "${window.get_title()}"`);
+
+                // Verificar se esta parte da janela está realmente visível
+                // (não coberta por outras janelas mais altas)
+                let isVisible = true;
+
+                for (const upperWindow of windows) {
+                    if (upperWindow === window) break; // Parar quando chegar na janela atual
+
+                    const upperRect = upperWindow.get_frame_rect();
+
+                    // Se uma janela mais alta cobre o cursor, a janela atual não é visível neste ponto
+                    if (cursorX >= upperRect.x && cursorX <= upperRect.x + upperRect.width &&
+                        cursorY >= upperRect.y && cursorY <= upperRect.y + upperRect.height) {
+                        console.log(`[Window Detection] Cursor coberto por "${upperWindow.get_title()}" - não visível`);
+                        isVisible = false;
+                        break;
+                    }
+                }
+
+                if (isVisible) {
+                    console.log(`[Window Detection] ✓ Janela visível encontrada: "${window.get_title()}" na posição (${cursorX}, ${cursorY})`);
+                    return window;
+                } else {
+                    console.log(`[Window Detection] ✗ Janela "${window.get_title()}" está coberta por outra janela`);
+                }
             }
         }
 
+        console.log(`[Window Detection] ✗ Nenhuma janela visível encontrada na posição (${cursorX}, ${cursorY})`);
         return null;
     }
 
