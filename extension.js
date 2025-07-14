@@ -792,6 +792,7 @@ class WindowGroup {
         this.tabBar = new TabBar(this);
         this._signals = [];
         this._syncingPositions = false; // Flag para evitar loops de sincronização
+        this._syncingMaximization = false; // Flag para evitar loops de maximização
         this._moveTimer = null; // Timer para detectar fim do movimento
         this._mouseTracker = null; // Timer para rastrear cursor no topo da tela
         this._topHoverTimeout = null; // Timeout para mostrar abas após 0.5s no topo
@@ -814,8 +815,14 @@ class WindowGroup {
             window.connect('unmanaging', () => this.removeWindow(window)),
             window.connect('notify::minimized', () => this._onWindowMinimizedChanged(window)),
             window.connect('notify::has-focus', () => this._updateTabBarVisibility()),
-            window.connect('notify::maximized-horizontally', () => this._updateTabBarVisibility()),
-            window.connect('notify::maximized-vertically', () => this._updateTabBarVisibility()),
+            window.connect('notify::maximized-horizontally', () => {
+                this._updateTabBarVisibility();
+                this._onWindowMaximizedChanged(window);
+            }),
+            window.connect('notify::maximized-vertically', () => {
+                this._updateTabBarVisibility();
+                this._onWindowMaximizedChanged(window);
+            }),
             // Adicionar eventos para detectar mudanças de tiling
             window.connect('position-changed', () => this._updateTabBarVisibility()),
             window.connect('size-changed', () => this._updateTabBarVisibility())
@@ -834,6 +841,8 @@ class WindowGroup {
         const activeWindow = this.tabBar._activeTab || this.windows[0];
         if (activeWindow && activeWindow !== window && !activeWindow.minimized) {
             this._syncWindowPositions(activeWindow);
+            // Sincronizar estado de maximização da nova janela
+            this._syncWindowMaximization(activeWindow);
             // Atualizar visibilidade - nova janela deve ficar oculta se não for ativa
             this._updateWindowsVisibility(activeWindow);
         }
@@ -908,6 +917,14 @@ class WindowGroup {
         this.tabBar.updatePosition();
     }
 
+    _onWindowMaximizedChanged(window) {
+        console.log(`[Maximize Sync] Janela "${window.get_title()}" mudou estado de maximização`);
+        // Sincronizar estado de maximização com outras janelas do grupo
+        this._syncWindowMaximization(window);
+        this._updateTabBarVisibility();
+        this.tabBar.updatePosition();
+    }
+
     _syncWindowPositions(activeWindow) {
         if (!activeWindow || activeWindow.minimized || this._syncingPositions) return;
 
@@ -935,6 +952,53 @@ class WindowGroup {
         setTimeout(() => {
             this._syncingPositions = false;
         }, 50);
+    }
+
+    _syncWindowMaximization(changedWindow) {
+        if (this._syncingMaximization) return; // Evitar loops infinitos
+        
+        // Flag para evitar loops durante sincronização
+        this._syncingMaximization = true;
+        
+        console.log(`[Maximize Sync] Sincronizando maximização da janela "${changedWindow.get_title()}"`);
+        
+        // Obter o estado atual da janela que mudou
+        const isMaximizedHorizontally = changedWindow.maximized_horizontally;
+        const isMaximizedVertically = changedWindow.maximized_vertically;
+        
+        console.log(`[Maximize Sync] Estado: H=${isMaximizedHorizontally}, V=${isMaximizedVertically}`);
+        
+        // Aplicar o mesmo estado a todas as outras janelas do grupo
+        this.windows.forEach(window => {
+            if (window === changedWindow || window.minimized) return;
+            
+            console.log(`[Maximize Sync] Aplicando estado a "${window.get_title()}"`);
+            
+            // Aplicar o estado de maximização
+            if (isMaximizedHorizontally && isMaximizedVertically) {
+                // Maximizar completamente
+                window.maximize(Meta.MaximizeFlags.BOTH);
+                console.log(`[Maximize Sync] Maximizando "${window.get_title()}" completamente`);
+            } else if (isMaximizedHorizontally) {
+                // Maximizar apenas horizontalmente
+                window.maximize(Meta.MaximizeFlags.HORIZONTAL);
+                console.log(`[Maximize Sync] Maximizando "${window.get_title()}" horizontalmente`);
+            } else if (isMaximizedVertically) {
+                // Maximizar apenas verticalmente
+                window.maximize(Meta.MaximizeFlags.VERTICAL);
+                console.log(`[Maximize Sync] Maximizando "${window.get_title()}" verticalmente`);
+            } else {
+                // Desmaximizar
+                window.unmaximize(Meta.MaximizeFlags.BOTH);
+                console.log(`[Maximize Sync] Desmaximizando "${window.get_title()}"`);
+            }
+        });
+        
+        // Liberar a flag após um pequeno delay
+        setTimeout(() => {
+            this._syncingMaximization = false;
+            console.log(`[Maximize Sync] Sincronização de maximização concluída`);
+        }, 100);
     }
 
     _scheduleMovementEnd(window) {
