@@ -108,6 +108,7 @@ const TabBar = GObject.registerClass(
             this.group = group;
             this.tabs = new Map();
             this._activeTab = null;
+            this._activeContextMenu = null; // Rastrear menu de contexto ativo
 
             // Container para as abas
             this._tabContainer = new St.BoxLayout({
@@ -266,6 +267,8 @@ const TabBar = GObject.registerClass(
                     destroyDragClone();
                     // Tornar aba original visível novamente
                     tab.set_opacity(255);
+                    // Esconder indicador de drop ao sair do drag
+                    this.group.manager._hideDropIndicator();
                 }
 
                 // Criar clone quando entrar em drag
@@ -365,39 +368,66 @@ const TabBar = GObject.registerClass(
                                 tab._updateTabStyles();
                             }
 
-                            // Verificar se está sobre outra aba
-                            const tabUnder = getTabUnderCursor(currentX, currentY);
-                            const currentTime = Date.now();
+                            // Verificar se está sobre a barra de abas para reordenação ou fora para agrupamento
+                            const [tabBarX, tabBarY] = this.get_transformed_position();
+                            const tabBarWidth = this.get_width();
+                            const tabBarHeight = this.get_height();
 
-                            if (tabUnder && tabUnder.window !== window && tabUnder.passedHalf) {
-                                // Lógica melhorada de reordenação com cooldown e detecção de direção
-                                const timeSinceLastReorder = currentTime - lastReorderTime;
-                                const cursorMovingRight = currentX > lastCursorX;
-                                const cursorMovingLeft = currentX < lastCursorX;
+                            const isOverTabBar = currentX >= tabBarX && currentX <= tabBarX + tabBarWidth &&
+                                currentY >= tabBarY && currentY <= tabBarY + tabBarHeight;
 
-                                // Permitir reordenação se:
-                                // 1. É uma aba diferente da última reordenada OU
-                                // 2. Passou o tempo de cooldown E mudou de direção
-                                const isDifferentTab = lastReorderedWindow !== tabUnder.window;
-                                const hasCooldownPassed = timeSinceLastReorder > reorderCooldown;
+                            if (isOverTabBar) {
+                                // Lógica de reordenação dentro da barra (código existente)
+                                const tabUnder = getTabUnderCursor(currentX, currentY);
+                                const currentTime = Date.now();
 
-                                if (isDifferentTab || hasCooldownPassed) {
-                                    console.log(`[Reorder Decision] Movendo "${window.get_title()}" para posição de "${tabUnder.window.get_title()}" (diferente: ${isDifferentTab}, cooldown: ${hasCooldownPassed})`);
-                                    reorderTab(window, tabUnder.window);
-                                    lastReorderedWindow = tabUnder.window;
-                                    lastReorderTime = currentTime;
+                                if (tabUnder && tabUnder.window !== window && tabUnder.passedHalf) {
+                                    // Lógica melhorada de reordenação com cooldown e detecção de direção
+                                    const timeSinceLastReorder = currentTime - lastReorderTime;
+                                    const cursorMovingRight = currentX > lastCursorX;
+                                    const cursorMovingLeft = currentX < lastCursorX;
+
+                                    // Permitir reordenação se:
+                                    // 1. É uma aba diferente da última reordenada OU
+                                    // 2. Passou o tempo de cooldown E mudou de direção
+                                    const isDifferentTab = lastReorderedWindow !== tabUnder.window;
+                                    const hasCooldownPassed = timeSinceLastReorder > reorderCooldown;
+
+                                    if (isDifferentTab || hasCooldownPassed) {
+                                        console.log(`[Reorder Decision] Movendo "${window.get_title()}" para posição de "${tabUnder.window.get_title()}" (diferente: ${isDifferentTab}, cooldown: ${hasCooldownPassed})`);
+                                        reorderTab(window, tabUnder.window);
+                                        lastReorderedWindow = tabUnder.window;
+                                        lastReorderTime = currentTime;
+                                    } else {
+                                        console.log(`[Reorder Skip] Aguardando cooldown para "${tabUnder.window.get_title()}" (${reorderCooldown - timeSinceLastReorder}ms restantes)`);
+                                    }
                                 } else {
-                                    console.log(`[Reorder Skip] Aguardando cooldown para "${tabUnder.window.get_title()}" (${reorderCooldown - timeSinceLastReorder}ms restantes)`);
+                                    // Se não está sobre nenhuma aba válida, permitir reset mais rápido
+                                    if (lastReorderedWindow && !tabUnder) {
+                                        const timeSinceLastReorder = currentTime - lastReorderTime;
+                                        if (timeSinceLastReorder > reorderCooldown / 2) {
+                                            console.log(`[Reorder Reset] Cursor fora das abas, resetando controle de reordenação`);
+                                            lastReorderedWindow = null;
+                                        }
+                                    }
+                                    // Esconder indicador quando dentro da barra mas não sobre abas
+                                    this.group.manager._hideDropIndicator();
                                 }
                             } else {
-                                // Se não está sobre nenhuma aba válida, permitir reset mais rápido
-                                if (lastReorderedWindow && !tabUnder) {
-                                    const timeSinceLastReorder = currentTime - lastReorderTime;
-                                    if (timeSinceLastReorder > reorderCooldown / 2) {
-                                        console.log(`[Reorder Reset] Cursor fora das abas, resetando controle de reordenação`);
-                                        lastReorderedWindow = null;
-                                    }
+                                // Fora da barra de abas - detectar janela alvo para agrupamento
+                                const targetWindow = this.group.manager._getWindowUnder(window);
+                                if (targetWindow) {
+                                    // Mostrar indicador de drop na janela alvo
+                                    this.group.manager._showDropIndicator(targetWindow);
+                                    console.log(`[Tab Drag External] Aba "${window.get_title()}" sobre janela "${targetWindow.get_title()}"`);
+                                } else {
+                                    // Esconder indicador se não há janela alvo
+                                    this.group.manager._hideDropIndicator();
+                                    console.log(`[Tab Drag External] Aba "${window.get_title()}" em área vazia`);
                                 }
+
+                                // Resetar controle de reordenação quando fora da barra
+                                lastReorderedWindow = null;
                             }
 
                             // Atualizar posição do cursor para detecção de direção
@@ -422,6 +452,37 @@ const TabBar = GObject.registerClass(
                             }
 
                             if (tabState === 'drag') {
+                                // Verificar se está fora da barra de abas para agrupamento/separação
+                                const [currentX, currentY] = releaseEvent.get_coords();
+                                const [tabBarX, tabBarY] = this.get_transformed_position();
+                                const tabBarWidth = this.get_width();
+                                const tabBarHeight = this.get_height();
+
+                                const isOverTabBar = currentX >= tabBarX && currentX <= tabBarX + tabBarWidth &&
+                                    currentY >= tabBarY && currentY <= tabBarY + tabBarHeight;
+
+                                if (!isOverTabBar) {
+                                    // Fora da barra - verificar agrupamento ou separação
+                                    const targetWindow = this.group.manager._getWindowUnder(window);
+
+                                    if (targetWindow && !this.group.manager._areInSameGroup(window, targetWindow)) {
+                                        // Agrupar com a janela alvo
+                                        console.log(`[Tab Drop] Agrupando aba "${window.get_title()}" com janela "${targetWindow.get_title()}"`);
+                                        this.group.manager._groupWindows(window, targetWindow);
+                                    } else if (!targetWindow && this.group.windows.length > 1) {
+                                        // Separar do grupo atual (apenas se o grupo tem mais de 1 janela)
+                                        console.log(`[Tab Drop] Separando aba "${window.get_title()}" do grupo atual`);
+                                        this._separateWindowFromGroup(window);
+                                    } else {
+                                        console.log(`[Tab Drop] Ação não aplicável para aba "${window.get_title()}"`);
+                                    }
+
+                                    // Esconder indicador de drop
+                                    this.group.manager._hideDropIndicator();
+                                } else {
+                                    console.log(`[Tab Drop] Aba "${window.get_title()}" solta dentro da barra - mantendo no grupo`);
+                                }
+
                                 updateState('up', releaseEvent);
                                 console.log(`[Drag End] Drag finalizado na aba "${window.get_title()}"`);
                                 // Remover classe visual de drag
@@ -445,6 +506,11 @@ const TabBar = GObject.registerClass(
                         }
                         return Clutter.EVENT_PROPAGATE;
                     });
+                } else if (event.get_button() === 3) { // Botão direito do mouse
+                    console.log(`[Right Click] Botão direito detectado na aba "${window.get_title()}"`);
+                    // Criar menu de contexto
+                    this._showContextMenu(window, event);
+                    return Clutter.EVENT_STOP;
                 }
                 return Clutter.EVENT_STOP;
             });
@@ -549,6 +615,172 @@ const TabBar = GObject.registerClass(
                 this.set_position(frame.x, frame.y - 40);
                 this.set_size(frame.width, 40);
             }
+        }
+
+        _showContextMenu(window, event) {
+            console.log(`[Context Menu] Iniciando criação do menu para aba "${window.get_title()}"`);
+            console.log(`[Context Menu] Grupo tem ${this.group.windows.length} janela(s)`);
+
+            // Fechar menu existente se houver
+            if (this._activeContextMenu) {
+                console.log(`[Context Menu] Fechando menu anterior`);
+                this._activeContextMenu.close();
+                this._activeContextMenu = null;
+            }
+
+            // Só mostrar menu se o grupo tem mais de uma janela
+            if (this.group.windows.length <= 1) {
+                console.log(`[Context Menu] Não é possível sair do grupo - grupo tem apenas ${this.group.windows.length} janela(s)`);
+                Main.notify(_('App Group Tabs'), _('Não é possível sair de um grupo com apenas uma janela'));
+                return;
+            }
+
+            try {
+                console.log(`[Context Menu] Criando PopupMenu...`);
+
+                // Criar um botão temporário como source para o menu
+                const sourceActor = new St.Widget({
+                    reactive: true,
+                    can_focus: true,
+                    track_hover: true
+                });
+
+                // Adicionar o source actor temporariamente ao layout
+                Main.uiGroup.add_child(sourceActor);
+
+                // Posicionar o source actor na posição do cursor
+                const [x, y] = event.get_coords();
+                sourceActor.set_position(x, y);
+                sourceActor.set_size(1, 1);
+
+                // Criar menu de contexto usando o source actor
+                const contextMenu = new PopupMenu.PopupMenu(sourceActor, 0.0, St.Side.TOP);
+                this._activeContextMenu = contextMenu; // Armazenar referência
+
+                console.log(`[Context Menu] Criando item do menu...`);
+                // Adicionar item "Sair do Grupo"
+                const leaveGroupItem = new PopupMenu.PopupMenuItem(_('Sair do Grupo'));
+                leaveGroupItem.connect('activate', () => {
+                    console.log(`[Context Menu] Item "Sair do Grupo" ativado`);
+                    this._separateWindowFromGroup(window);
+                    contextMenu.close();
+                });
+                contextMenu.addMenuItem(leaveGroupItem);
+
+                console.log(`[Context Menu] Posicionando menu em (${x}, ${y})`);
+
+                // Adicionar o menu ao Main.uiGroup para exibição
+                console.log(`[Context Menu] Adicionando menu ao uiGroup...`);
+                Main.uiGroup.add_child(contextMenu.actor);
+
+                // Abrir o menu
+                console.log(`[Context Menu] Abrindo menu...`);
+                contextMenu.open();
+
+                // Função para fechar o menu
+                const closeMenu = () => {
+                    console.log(`[Context Menu] Fechando menu via callback`);
+                    if (contextMenu && !contextMenu._isDestroyed) {
+                        contextMenu.close();
+                    }
+                };
+
+                // Registrar o menu no GSM para detecção global de cliques
+                const gsm = this.group.manager.extension._globalShellManager;
+                let menuInfo = null;
+                if (gsm) {
+                    menuInfo = gsm.registerContextMenu(contextMenu, closeMenu);
+                    console.log(`[Context Menu] Menu registrado no GSM`);
+                }
+
+                // Conectar evento para limpar quando o menu for fechado
+                contextMenu.connect('open-state-changed', (menu, open) => {
+                    if (!open) {
+                        console.log(`[Context Menu] Menu fechado, limpando recursos`);
+                        
+                        // Desregistrar do GSM
+                        if (gsm && menuInfo) {
+                            gsm.unregisterContextMenu(menuInfo);
+                            console.log(`[Context Menu] Menu desregistrado do GSM`);
+                        }
+                        
+                        // Limpar recursos
+                        if (contextMenu.actor && contextMenu.actor.get_parent()) {
+                            Main.uiGroup.remove_child(contextMenu.actor);
+                        }
+                        if (sourceActor && sourceActor.get_parent()) {
+                            Main.uiGroup.remove_child(sourceActor);
+                        }
+                        if (!contextMenu._isDestroyed) {
+                            contextMenu.destroy();
+                        }
+                        if (!sourceActor._isDestroyed) {
+                            sourceActor.destroy();
+                        }
+                        // Limpar referência ativa
+                        if (this._activeContextMenu === contextMenu) {
+                            this._activeContextMenu = null;
+                        }
+                    }
+                });
+
+                // Também fechar com ESC (mantido como backup)
+                const keyPressId = global.stage.connect('key-press-event', (stage, keyEvent) => {
+                    if (keyEvent.get_key_symbol() === Clutter.KEY_Escape) {
+                        console.log(`[Context Menu] ESC pressionado, fechando menu`);
+                        closeMenu();
+                        global.stage.disconnect(keyPressId);
+                    }
+                    return Clutter.EVENT_PROPAGATE;
+                });
+
+                // Limpar listener de ESC quando menu fechar
+                contextMenu.connect('open-state-changed', (menu, open) => {
+                    if (!open && keyPressId) {
+                        global.stage.disconnect(keyPressId);
+                    }
+                });
+
+                console.log(`[Context Menu] Menu de contexto criado e aberto para aba "${window.get_title()}"`);
+            } catch (error) {
+                console.error(`[Context Menu] Erro ao criar menu: ${error}`);
+                Main.notify(_('App Group Tabs'), _(`Erro ao criar menu: ${error}`));
+                // Limpar referência em caso de erro
+                this._activeContextMenu = null;
+            }
+        }
+
+        _separateWindowFromGroup(window) {
+            // Remover a janela do grupo atual e criar um novo grupo individual
+            console.log(`[Tab Separation] Separando janela "${window.get_title()}" do grupo`);
+
+            // Obter o grupo atual
+            const currentGroup = this.group;
+            const manager = currentGroup.manager;
+
+            // Remover a janela do grupo atual
+            currentGroup.removeWindow(window);
+
+            // Criar um novo grupo individual para a janela
+            const newGroup = new WindowGroup(manager);
+            manager.groups.add(newGroup);
+
+            newGroup.addWindow(window);
+            manager.windowGroups.set(window, newGroup);
+
+            console.log(`[Tab Separation] Janela "${window.get_title()}" separada em novo grupo`);
+        }
+
+        destroy() {
+            // Fechar menu ativo se existir
+            if (this._activeContextMenu) {
+                console.log(`[TabBar Destroy] Fechando menu ativo`);
+                this._activeContextMenu.close();
+                this._activeContextMenu = null;
+            }
+
+            // Chamar destroy do parent
+            super.destroy();
         }
     });
 
@@ -991,6 +1223,7 @@ class GlobalShellManager {
         this._lastButtonState = null;
         this._dragThreshold = 5;
         this._activeDragClones = new Set(); // Rastrear clones ativos
+        this._activeContextMenus = new Set(); // Rastrear menus de contexto ativos
     }
 
     enable() {
@@ -1029,6 +1262,16 @@ class GlobalShellManager {
             const button = event.get_button();
             console.log(`[Global Button Press1 - Shell] Botão ${button} pressionado em (${x}, ${y})`);
             this._lastButtonState = { button, pressed: true, x, y, event: 'down' };
+            
+            // Verificar se deve fechar menus de contexto ativos
+            if (this._activeContextMenus.size > 0) {
+                const isInsideMenu = this._isClickInsideActiveMenu(x, y);
+                if (!isInsideMenu) {
+                    console.log(`[GSM] Clique fora dos menus detectado, fechando menus ativos`);
+                    this.closeAllContextMenus();
+                }
+            }
+            
             // Destruir clones ativos quando novo botão for pressionado
             this.destroyAllDragClones();
             return Clutter.EVENT_PROPAGATE;
@@ -1069,6 +1312,8 @@ class GlobalShellManager {
                 console.log(`[Global Button Press - Universal] Botão 1 pressionado em (${x}, ${y})`);
                 // Destruir clones ativos quando novo botão for pressionado
                 this.destroyAllDragClones();
+                // Fechar menus de contexto ativos
+                this.closeAllContextMenus();
                 this._lastButtonState = { button: 1, pressed: true, x, y, event: 'down' };
             } else if (!leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1) {
                 console.log(`[Global Button Release - Universal] Botão 1 solto em (${x}, ${y})`);
@@ -1136,6 +1381,9 @@ class GlobalShellManager {
 
         // Destruir todos os clones ativos ao desabilitar
         this.destroyAllDragClones();
+
+        // Fechar todos os menus de contexto ativos ao desabilitar
+        this.closeAllContextMenus();
     }
 
     // Método para destruir todos os clones de drag ativos
@@ -1164,6 +1412,61 @@ class GlobalShellManager {
     unregisterDragClone(clone) {
         this._activeDragClones.delete(clone);
         console.warn(`[GSM] Clone removido. Total: ${this._activeDragClones.size}`);
+    }
+
+    // Método para registrar um menu de contexto ativo
+    registerContextMenu(menu, closeCallback) {
+        const menuInfo = { menu, closeCallback };
+        this._activeContextMenus.add(menuInfo);
+        console.log(`[GSM] Menu de contexto registrado. Total: ${this._activeContextMenus.size}`);
+        return menuInfo; // Retorna referência para poder desregistrar depois
+    }
+
+    // Método para desregistrar um menu de contexto
+    unregisterContextMenu(menuInfo) {
+        this._activeContextMenus.delete(menuInfo);
+        console.log(`[GSM] Menu de contexto desregistrado. Total: ${this._activeContextMenus.size}`);
+    }
+
+    // Método para fechar todos os menus ativos
+    closeAllContextMenus() {
+        if (this._activeContextMenus.size > 0) {
+            console.log(`[GSM] Fechando ${this._activeContextMenus.size} menu(s) de contexto`);
+            this._activeContextMenus.forEach(menuInfo => {
+                try {
+                    if (menuInfo.closeCallback) {
+                        menuInfo.closeCallback();
+                    }
+                } catch (error) {
+                    console.warn('[GSM] Erro ao fechar menu:', error);
+                }
+            });
+            this._activeContextMenus.clear();
+        }
+    }
+
+    // Verificar se um clique está dentro de algum menu ativo
+    _isClickInsideActiveMenu(clickX, clickY) {
+        for (const menuInfo of this._activeContextMenus) {
+            const menu = menuInfo.menu;
+            if (menu && menu.actor && menu.actor.visible) {
+                try {
+                    const [menuX, menuY] = menu.actor.get_transformed_position();
+                    const menuWidth = menu.actor.get_width();
+                    const menuHeight = menu.actor.get_height();
+                    
+                    const isInside = clickX >= menuX && clickX <= menuX + menuWidth &&
+                                   clickY >= menuY && clickY <= menuY + menuHeight;
+                    
+                    if (isInside) {
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('[GSM] Erro ao verificar posição do menu:', error);
+                }
+            }
+        }
+        return false;
     }
 }
 
