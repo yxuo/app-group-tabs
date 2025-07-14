@@ -163,39 +163,91 @@ const TabBar = GObject.registerClass(
                 dragOffsetX = cursorX - tabX;
                 dragOffsetY = cursorY - tabY;
 
-                // Criar clone visual
+                // Buffer invisível de 200px para garantir captura do cursor
+                const buffer = 800;
+                const originalWidth = tab.get_width();
+                const originalHeight = tab.get_height();
+
+                // Criar clone visual com buffer expandido (para captura de eventos)
                 dragClone = new St.Button({
                     style_class: 'tab tab-dragging',
-                    width: tab.get_width(),
-                    height: tab.get_height(),
+                    width: originalWidth + (buffer * 2),
+                    height: originalHeight + (buffer * 2),
                     child: new St.Label({
                         text: window.get_title() || 'Janela',
                         x_align: Clutter.ActorAlign.CENTER
                     })
                 });
 
+                // Aplicar estilo - buffer transparente para captura de eventos
+                dragClone.style = `
+                    padding: 0px;
+                    background: transparent;
+                    border: none;
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0);
+                `;
+
+                // Criar clone visual da aba (aparência normal da aba por cima)
+                const visualClone = new St.Button({
+                    style_class: 'tab tab-dragging',
+                    width: originalWidth,
+                    height: originalHeight,
+                    child: new St.Label({
+                        text: window.get_title() || 'Janela',
+                        x_align: Clutter.ActorAlign.CENTER
+                    })
+                });
+
+                // Posicionar o clone visual centralizado sobre o buffer
+                visualClone.set_position(buffer, buffer);
+                dragClone.add_child(visualClone);
+
                 // Adicionar o clone ao layoutManager para ficar sobre tudo
                 Main.layoutManager.addTopChrome(dragClone);
 
-                // Posicionar o clone na posição do cursor
-                dragClone.set_position(cursorX - dragOffsetX, cursorY - dragOffsetY);
+                // Posicionar o clone considerando o buffer (centralizar o visual na posição original)
+                const cloneX = cursorX - dragOffsetX - buffer;
+                const cloneY = cursorY - dragOffsetY - buffer;
+                dragClone.set_position(cloneX, cloneY);
 
-                console.log(`[Drag Clone] Clone criado para aba "${window.get_title()}" em (${cursorX - dragOffsetX}, ${cursorY - dragOffsetY})`);
+                // Registrar o clone no GlobalShellManager se disponível
+                if (this.group.manager.extension._globalShellManager) {
+                    this.group.manager.extension._globalShellManager.registerDragClone(dragClone);
+                } else {
+                    console.warn(`[Drag Clone] GlobalShellManager não disponível, clone não registrado`);
+                }
+
+                console.log(`[Drag Clone] Clone com buffer ${buffer}px criado para aba "${window.get_title()}" em (${cloneX}, ${cloneY}) tamanho ${originalWidth + buffer * 2}x${originalHeight + buffer * 2}`);
             };
 
             // Função para atualizar posição do clone
             const updateDragClone = (cursorX, cursorY) => {
                 if (!dragClone) return;
 
-                // Atualizar posição do clone seguindo o cursor
-                dragClone.set_position(cursorX - dragOffsetX, cursorY - dragOffsetY);
+                // Buffer invisível
+                const buffer = 800;
+
+                // Atualizar posição do clone mantendo o buffer
+                const cloneX = cursorX - dragOffsetX - buffer;
+                const cloneY = cursorY - dragOffsetY - buffer;
+
+                dragClone.set_position(cloneX, cloneY);
+
+                // console.log(`[Clone Update] Clone reposicionado para (${cloneX}, ${cloneY}) seguindo cursor em (${cursorX}, ${cursorY})`);
             };
 
             // Função para destruir clone visual
             const destroyDragClone = () => {
                 if (dragClone) {
+                    // Desregistrar o clone do GlobalShellManager se disponível
+                    if (this.group.manager.extension._globalShellManager) {
+                        this.group.manager.extension._globalShellManager.unregisterDragClone(dragClone);
+                    }
+
                     Main.layoutManager.removeChrome(dragClone);
-                    dragClone.destroy();
+                    try {
+                        dragClone.destroy();
+                    } catch (e) {}
                     dragClone = null;
                     console.log(`[Drag Clone] Clone destruído para aba "${window.get_title()}"`);
                 }
@@ -282,6 +334,10 @@ const TabBar = GObject.registerClass(
 
                     // Conectar eventos globais para detectar movimento
                     dragMotionId = global.stage.connect('motion-event', (stage, motionEvent) => {
+                        // Log de comparação de estados: Aba vs GSM
+                        const gsmState = this.group.manager.extension._globalShellManager?._lastButtonState?.event || 'none';
+                        console.log(`[State Compare] Aba: "${tabState}" | GSM: "${gsmState}" | Window: "${window.get_title()}"`);
+
                         if (tabState === 'down') {
                             const [currentX, currentY] = motionEvent.get_coords();
                             const deltaX = Math.abs(currentX - pressStartX);
@@ -299,6 +355,15 @@ const TabBar = GObject.registerClass(
                             // Durante o drag, atualizar posição do clone
                             const [currentX, currentY] = motionEvent.get_coords();
                             updateDragClone(currentX, currentY);
+
+                            // Verificar se o state global não é 'drag'
+                            const gsm = this.group.manager.extension._globalShellManager;
+                            const gsmState = gsm?._lastButtonState?.event || 'none';
+                            if (gsmState !== 'drag') {
+                                gsm.destroyAllDragClones();
+                                updateState('up', releaseEvent);
+                                tab._updateTabStyles();
+                            }
 
                             // Verificar se está sobre outra aba
                             const tabUnder = getTabUnderCursor(currentX, currentY);
@@ -338,7 +403,7 @@ const TabBar = GObject.registerClass(
                             // Atualizar posição do cursor para detecção de direção
                             lastCursorX = currentX;
 
-                            console.log(`[Drag Movement] Aba "${window.get_title()}" movendo para (${currentX}, ${currentY})`);
+                            // console.log(`[Drag Movement] Aba "${window.get_title()}" movendo para (${currentX}, ${currentY})`);
                         }
                         return Clutter.EVENT_PROPAGATE;
                     });
@@ -366,6 +431,8 @@ const TabBar = GObject.registerClass(
                                 console.log(`[Click] Clique registrado na aba "${window.get_title()}"`);
                                 // Ativar a aba apenas se foi um clique
                                 this._activateTab(window);
+                                // Evitar bug de continaur movendo a aba após o drag
+                                tab.remove_style_class_name('dragging');
                             } else {
                                 updateState('up', releaseEvent);
                             }
@@ -922,6 +989,8 @@ class GlobalShellManager {
         this._mousePollingTimer = null;
         this._lastMousePosition = { x: -1, y: -1 };
         this._lastButtonState = null;
+        this._dragThreshold = 5;
+        this._activeDragClones = new Set(); // Rastrear clones ativos
     }
 
     enable() {
@@ -930,8 +999,27 @@ class GlobalShellManager {
         // Listener global de movimento do mouse (para áreas do Shell)
         this._globalMouseMotionId = global.stage.connect('motion-event', (stage, event) => {
             const [x, y] = event.get_coords();
-            console.log(`[Global Mouse Motion - Shell] Cursor em (${x}, ${y})`);
+            // console.log(`[GMM - Shell] Cursor: (${x}, ${y}), event: ${this._lastButtonState?.event}`);
             this._lastMousePosition = { x, y };
+
+            // Verificar se está em estado 'down' e detectar movimento para 'drag'
+            if (this._lastButtonState?.event === 'down' && this._lastButtonState?.pressed) {
+                const deltaX = Math.abs(x - this._lastButtonState.x);
+                const deltaY = Math.abs(y - this._lastButtonState.y);
+
+                // Verificar se moveu mais que o threshold para considerar drag
+                if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
+                    this._lastButtonState = { 
+                        button: this._lastButtonState.button, 
+                        pressed: this._lastButtonState.pressed, 
+                        x, 
+                        y, 
+                        event: 'drag' 
+                    };
+                    console.log(`[Global Shell Manager] Estado mudou para 'drag' em (${x}, ${y})`);
+                }
+            }
+
             return Clutter.EVENT_PROPAGATE;
         });
 
@@ -939,8 +1027,10 @@ class GlobalShellManager {
         this._globalButtonPressId = global.stage.connect('button-press-event', (stage, event) => {
             const [x, y] = event.get_coords();
             const button = event.get_button();
-            console.log(`[Global Button Press - Shell] Botão ${button} pressionado em (${x}, ${y})`);
-            this._lastButtonState = { button, pressed: true, x, y };
+            console.log(`[Global Button Press1 - Shell] Botão ${button} pressionado em (${x}, ${y})`);
+            this._lastButtonState = { button, pressed: true, x, y, event: 'down' };
+            // Destruir clones ativos quando novo botão for pressionado
+            this.destroyAllDragClones();
             return Clutter.EVENT_PROPAGATE;
         });
 
@@ -949,7 +1039,13 @@ class GlobalShellManager {
             const [x, y] = event.get_coords();
             const button = event.get_button();
             console.log(`[Global Button Release - Shell] Botão ${button} solto em (${x}, ${y})`);
-            this._lastButtonState = { button, pressed: false, x, y };
+            if (this._lastButtonState?.button === button && 
+                (this._lastButtonState?.event === 'down' || this._lastButtonState?.event === 'drag')) {
+                this._lastButtonState = { button, pressed: false, x, y, event: 'up' };
+                console.log(`[Global Shell Manager] Estado mudou para 'up' em (${x}, ${y})`);
+            }
+            // Destruir clones ativos quando botão for solto
+            this.destroyAllDragClones();
             return Clutter.EVENT_PROPAGATE;
         });
 
@@ -959,7 +1055,7 @@ class GlobalShellManager {
 
             // Verificar se a posição mudou
             if (x !== this._lastMousePosition.x || y !== this._lastMousePosition.y) {
-                console.log(`[Global Mouse Motion - Universal] Cursor em (${x}, ${y})`);
+                // console.log(`[GMM - Universal] Cursor: (${x}, ${y})`);
                 this._lastMousePosition = { x, y };
             }
 
@@ -971,18 +1067,38 @@ class GlobalShellManager {
             // Detectar mudanças de estado dos botões
             if (leftPressed && (!this._lastButtonState || !this._lastButtonState.pressed || this._lastButtonState.button !== 1)) {
                 console.log(`[Global Button Press - Universal] Botão 1 pressionado em (${x}, ${y})`);
-                this._lastButtonState = { button: 1, pressed: true, x, y };
+                // Destruir clones ativos quando novo botão for pressionado
+                this.destroyAllDragClones();
+                this._lastButtonState = { button: 1, pressed: true, x, y, event: 'down' };
             } else if (!leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1) {
                 console.log(`[Global Button Release - Universal] Botão 1 solto em (${x}, ${y})`);
-                this._lastButtonState = { button: 1, pressed: false, x, y };
+                this._lastButtonState = { button: 1, pressed: false, x, y, event: 'up' };
+                // Destruir clones ativos quando botão for solto
+                this.destroyAllDragClones();
+            } else if (leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1 && this._lastButtonState.event === 'down') {
+                // Verificar se há movimento suficiente para considerar drag
+                const deltaX = Math.abs(x - this._lastButtonState.x);
+                const deltaY = Math.abs(y - this._lastButtonState.y);
+                if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
+                    console.log(`[Global Drag - Universal] Botão 1 em drag em (${x}, ${y})`);
+                    this._lastButtonState = { button: 1, pressed: true, x, y, event: 'drag' };
+                }
             }
 
             if (rightPressed && (!this._lastButtonState || !this._lastButtonState.pressed || this._lastButtonState.button !== 3)) {
                 console.log(`[Global Button Press - Universal] Botão 3 pressionado em (${x}, ${y})`);
-                this._lastButtonState = { button: 3, pressed: true, x, y };
+                this._lastButtonState = { button: 3, pressed: true, x, y, event: 'down' };
             } else if (!rightPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 3) {
                 console.log(`[Global Button Release - Universal] Botão 3 solto em (${x}, ${y})`);
-                this._lastButtonState = { button: 3, pressed: false, x, y };
+                this._lastButtonState = { button: 3, pressed: false, x, y, event: 'up' };
+            } else if (rightPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 3 && this._lastButtonState.event === 'down') {
+                // Verificar se há movimento suficiente para considerar drag
+                const deltaX = Math.abs(x - this._lastButtonState.x);
+                const deltaY = Math.abs(y - this._lastButtonState.y);
+                if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
+                    console.log(`[Global Drag - Universal] Botão 3 em drag em (${x}, ${y})`);
+                    this._lastButtonState = { button: 3, pressed: true, x, y, event: 'drag' };
+                }
             }
 
         }, 16); // ~60 FPS para rastreamento suave
@@ -1017,6 +1133,37 @@ class GlobalShellManager {
             this._mousePollingTimer = null;
             console.log('[Global Shell Manager] Polling universal do mouse desabilitado');
         }
+
+        // Destruir todos os clones ativos ao desabilitar
+        this.destroyAllDragClones();
+    }
+
+    // Método para destruir todos os clones de drag ativos
+    destroyAllDragClones() {
+        console.log(`[GSM] Destruindo ${this._activeDragClones.size} clones. State: ${this._lastButtonState?.event || 'none'}`);
+        this._activeDragClones.forEach(clone => {
+            try {
+                if (clone) {
+                    Main.layoutManager.removeChrome(clone);
+                    clone.destroy();
+                }
+            } catch (error) {
+                console.warn('[Global Shell Manager] Erro ao destruir clone:', error);
+            }
+        });
+        this._activeDragClones.clear();
+    }
+
+    // Método para registrar um clone de drag
+    registerDragClone(clone) {
+        this._activeDragClones.add(clone);
+        console.warn(`[GSM] Clone adicionado. Total: ${this._activeDragClones.size}`);
+    }
+
+    // Método para desregistrar um clone de drag
+    unregisterDragClone(clone) {
+        this._activeDragClones.delete(clone);
+        console.warn(`[GSM] Clone removido. Total: ${this._activeDragClones.size}`);
     }
 }
 
