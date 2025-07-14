@@ -697,13 +697,13 @@ const TabBar = GObject.registerClass(
                 contextMenu.connect('open-state-changed', (menu, open) => {
                     if (!open) {
                         console.log(`[Context Menu] Menu fechado, limpando recursos`);
-                        
+
                         // Desregistrar do GSM
                         if (gsm && menuInfo) {
                             gsm.unregisterContextMenu(menuInfo);
                             console.log(`[Context Menu] Menu desregistrado do GSM`);
                         }
-                        
+
                         // Limpar recursos
                         if (contextMenu.actor && contextMenu.actor.get_parent()) {
                             Main.uiGroup.remove_child(contextMenu.actor);
@@ -880,6 +880,8 @@ class WindowGroup {
 
         if (this.windows.length === 0) {
             this.dissolve();
+        } else if (this.windows.length === 1 && !this.manager.singleWindowGroups) {
+            this.dissolve();
         } else {
             this.tabBar.updatePosition();
         }
@@ -962,24 +964,24 @@ class WindowGroup {
 
     _syncWindowMaximization(changedWindow) {
         if (this._syncingMaximization) return; // Evitar loops infinitos
-        
+
         // Flag para evitar loops durante sincronização
         this._syncingMaximization = true;
-        
+
         console.log(`[Maximize Sync] Sincronizando maximização da janela "${changedWindow.get_title()}"`);
-        
+
         // Obter o estado atual da janela que mudou
         const isMaximizedHorizontally = changedWindow.maximized_horizontally;
         const isMaximizedVertically = changedWindow.maximized_vertically;
-        
+
         console.log(`[Maximize Sync] Estado: H=${isMaximizedHorizontally}, V=${isMaximizedVertically}`);
-        
+
         // Aplicar o mesmo estado a todas as outras janelas do grupo
         this.windows.forEach(window => {
             if (window === changedWindow || window.minimized) return;
-            
+
             console.log(`[Maximize Sync] Aplicando estado a "${window.get_title()}"`);
-            
+
             // Aplicar o estado de maximização
             if (isMaximizedHorizontally && isMaximizedVertically) {
                 // Maximizar completamente
@@ -999,7 +1001,7 @@ class WindowGroup {
                 console.log(`[Maximize Sync] Desmaximizando "${window.get_title()}"`);
             }
         });
-        
+
         // Liberar a flag após um pequeno delay
         setTimeout(() => {
             this._syncingMaximization = false;
@@ -1332,7 +1334,7 @@ class GlobalShellManager {
             const button = event.get_button();
             console.log(`[Global Button Press1 - Shell] Botão ${button} pressionado em (${x}, ${y})`);
             this._lastButtonState = { button, pressed: true, x, y, event: 'down' };
-            
+
             // Verificar se deve fechar menus de contexto ativos
             if (this._activeContextMenus.size > 0) {
                 const isInsideMenu = this._isClickInsideActiveMenu(x, y);
@@ -1341,7 +1343,7 @@ class GlobalShellManager {
                     this.closeAllContextMenus();
                 }
             }
-            
+
             // Destruir clones ativos quando novo botão for pressionado
             this.destroyAllDragClones();
             return Clutter.EVENT_PROPAGATE;
@@ -1387,7 +1389,7 @@ class GlobalShellManager {
                     const isInsideMenu = this._isClickInsideActiveMenu(x, y);
                     if (!isInsideMenu) {
                         this.closeAllContextMenus();
-                    } 
+                    }
                 }
                 this._lastButtonState = { button: 1, pressed: true, x, y, event: 'down' };
             } else if (!leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1) {
@@ -1529,10 +1531,10 @@ class GlobalShellManager {
                     const [menuX, menuY] = menu.actor.get_transformed_position();
                     const menuWidth = menu.actor.get_width();
                     const menuHeight = menu.actor.get_height();
-                    
+
                     const isInside = clickX >= menuX && clickX <= menuX + menuWidth &&
-                                   clickY >= menuY && clickY <= menuY + menuHeight;
-                    
+                        clickY >= menuY && clickY <= menuY + menuHeight;
+
                     if (isInside) {
                         return true;
                     }
