@@ -131,14 +131,70 @@ const TabBar = GObject.registerClass(
         }
 
         addTab(window) {
+            // Container principal da aba
             const tab = new St.Button({
                 style_class: 'tab',
-                x_expand: true,
-                child: new St.Label({
-                    text: window.get_title() || 'Janela',
-                    x_align: Clutter.ActorAlign.CENTER
-                })
+                x_expand: true
             });
+
+            // Container interno para organizar label e botão de fechar
+            const tabContent = new St.BoxLayout({
+                vertical: false,
+                x_expand: true,
+                x_align: Clutter.ActorAlign.FILL
+            });
+
+            // Label com o título da janela
+            const tabLabel = new St.Label({
+                text: window.get_title() || 'Janela',
+                x_align: Clutter.ActorAlign.CENTER,
+                x_expand: true
+            });
+
+            // Botão de fechar a aba (remover do grupo)
+            const closeTabButton = new St.Button({
+                style_class: 'tab-close-button-small',
+                child: new St.Icon({
+                    icon_name: 'window-close-symbolic',
+                    icon_size: 12
+                }),
+                reactive: true,
+                can_focus: true,
+                track_hover: true
+            });
+
+            // Conectar evento do botão de fechar
+            closeTabButton.connect('clicked', (button, event) => {
+                console.log(`[Tab Close] Fechando aba "${window.get_title()}"`);
+
+                // Verificar se o grupo tem mais de uma janela
+                if (this.group.windows.length <= 1) {
+                    Main.notify(_('App Group Tabs'), _('Não é possível fechar a única aba do grupo'));
+                    return Clutter.EVENT_STOP;
+                }
+
+                // Separar a janela do grupo
+                this._separateWindowFromGroup(window);
+                return Clutter.EVENT_STOP;
+            });
+
+            // Adicionar hover effect no botão de fechar
+            closeTabButton.connect('enter-event', () => {
+                closeTabButton.add_style_class_name('hover');
+            });
+
+            closeTabButton.connect('leave-event', () => {
+                closeTabButton.remove_style_class_name('hover');
+            });
+
+            // Montar a estrutura da aba
+            tabContent.add_child(tabLabel);
+            tabContent.add_child(closeTabButton);
+            tab.set_child(tabContent);
+
+            // Armazenar referências para facilitar acesso
+            tab.tabLabel = tabLabel;
+            tab.closeButton = closeTabButton;
 
             // Estados possíveis: 'none', 'down', 'drag', 'up', 'click'
             let tabState = 'none';
@@ -159,15 +215,17 @@ const TabBar = GObject.registerClass(
             const createDragClone = (cursorX, cursorY) => {
                 if (dragClone) return; // Clone já existe
 
-                // Calcular offset do cursor em relação à posição da aba
+                // Obter posição e dimensões da aba original
                 const [tabX, tabY] = tab.get_transformed_position();
+                const originalWidth = tab.get_width();
+                const originalHeight = tab.get_height();
+                
+                // Calcular offset do cursor em relação à posição da aba
                 dragOffsetX = cursorX - tabX;
                 dragOffsetY = cursorY - tabY;
 
-                // Buffer invisível de 200px para garantir captura do cursor
+                // Buffer invisível para garantir captura do cursor
                 const buffer = 800;
-                const originalWidth = tab.get_width();
-                const originalHeight = tab.get_height();
 
                 // Criar clone visual com buffer expandido (para captura de eventos)
                 dragClone = new St.Button({
@@ -206,9 +264,9 @@ const TabBar = GObject.registerClass(
                 // Adicionar o clone ao layoutManager para ficar sobre tudo
                 Main.layoutManager.addTopChrome(dragClone);
 
-                // Posicionar o clone considerando o buffer (centralizar o visual na posição original)
-                const cloneX = cursorX - dragOffsetX - buffer;
-                const cloneY = cursorY - dragOffsetY - buffer;
+                // Posicionar o clone para que o visual fique exatamente na posição da aba original
+                const cloneX = tabX - buffer - 2;
+                const cloneY = tabY - buffer - 4;
                 dragClone.set_position(cloneX, cloneY);
 
                 // Registrar o clone no GlobalShellManager se disponível
@@ -218,7 +276,7 @@ const TabBar = GObject.registerClass(
                     console.warn(`[Drag Clone] GlobalShellManager não disponível, clone não registrado`);
                 }
 
-                console.log(`[Drag Clone] Clone com buffer ${buffer}px criado para aba "${window.get_title()}" em (${cloneX}, ${cloneY}) tamanho ${originalWidth + buffer * 2}x${originalHeight + buffer * 2}`);
+                console.log(`[Drag Clone] Clone criado para aba "${window.get_title()}" em (${cloneX}, ${cloneY}) - aba original em (${tabX}, ${tabY})`);
             };
 
             // Função para atualizar posição do clone
@@ -229,8 +287,8 @@ const TabBar = GObject.registerClass(
                 const buffer = 800;
 
                 // Atualizar posição do clone mantendo o buffer
-                const cloneX = cursorX - dragOffsetX - buffer;
-                const cloneY = cursorY - dragOffsetY - buffer;
+                const cloneX = cursorX - dragOffsetX - buffer - 2;
+                const cloneY = cursorY - dragOffsetY - buffer - 4;
 
                 dragClone.set_position(cloneX, cloneY);
 
@@ -540,7 +598,7 @@ const TabBar = GObject.registerClass(
 
             // Atualizar título quando a janela mudar
             window.connect('notify::title', () => {
-                tab.child.text = window.get_title() || 'Janela';
+                tab.tabLabel.text = window.get_title() || 'Janela';
             });
 
             this._updateTabStyles();

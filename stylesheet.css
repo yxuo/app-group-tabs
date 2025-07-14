@@ -23,10 +23,15 @@
     background-color: rgba(60, 60, 60, 0.8);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 4px;
-    padding: 8px 16px;
+    padding: 4px 6px;
     margin: 2px 1px;
-    min-width: 120px;
+    min-width: 40px;
     transition-duration: 200ms;
+    /* Limite de caracteres para 200 chars o texto da aba */
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .tab:hover {
@@ -42,7 +47,7 @@
 }
 
 .tab.active:hover {
-    background-color: rgba(140, 140, 140, 0.9);
+    background-color: rgba(120, 120, 120, 0.9);
 }
 
 /* Texto da aba */
@@ -50,11 +55,21 @@
     color: rgba(255, 255, 255, 0.9);
     font-size: 12px;
     font-weight: normal;
+    /* Limite de caracteres para 200 chars o texto da aba */
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
 }
 
 .tab.active StLabel {
     color: white;
-    font-weight: bold;
+    /* Limite de caracteres para 200 chars o texto da aba */
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Botão de fechar grupo */
@@ -117,7 +132,6 @@
 
 .tab-bar.light-theme .tab.active StLabel {
     color: white;
-    font-weight: bold;
 }
 
 .tab-bar.light-theme .tab-close-button {
@@ -174,10 +188,10 @@
 .tab-dragging {
     background-color: rgba(140, 140, 140, 0.9);
     border: 2px solid rgba(140, 140, 140, 1);
-    border-radius: 6px;
+    border-radius: 4px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
     color: white;
-    padding: 8px 16px;
+    padding: 4px 16px;
     min-width: 120px;
     z-index: 1000;
     transition: none;
@@ -187,6 +201,11 @@
 .tab.dragging {
     opacity: 0.3;
     transition: opacity 0.2s ease;
+    /* Limite de caracteres para 200 chars o texto da aba */
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Clone visual da aba sendo arrastada - tema claro */
@@ -195,4 +214,53 @@
     border: 2px solid rgba(120, 120, 120, 1);
     color: white;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* ===== BOTÃO DE FECHAR ABA ===== */
+
+/* Botão pequeno para fechar aba individual */
+.tab-close-button-small {
+    background-color: transparent;
+    border: none;
+    border-radius: 2px;
+    padding: 2px;
+    margin-left: 6px;
+    min-width: 16px;
+    min-height: 16px;
+    transition-duration: 150ms;
+}
+
+.tab-close-button-small:hover,
+.tab-close-button-small.hover {
+    background-color: rgba(255, 100, 100, 0.7);
+    border-radius: 3px;
+}
+
+.tab-close-button-small StIcon {
+    color: rgba(255, 255, 255, 0.7);
+    icon-size: 12px;
+}
+
+.tab-close-button-small:hover StIcon,
+.tab-close-button-small.hover StIcon {
+    color: white;
+}
+
+/* Estilos do botão de fechar para tema claro */
+.light-theme .tab-close-button-small {
+    background-color: transparent;
+}
+
+.light-theme .tab-close-button-small:hover,
+.light-theme .tab-close-button-small.hover {
+    background-color: rgba(200, 50, 50, 0.7);
+}
+
+.light-theme .tab-close-button-small StIcon {
+    color: rgba(60, 60, 60, 0.8);
+}
+
+.light-theme .tab-close-button-small:hover StIcon,
+.light-theme .tab-close-button-small.hover StIcon {
+    color: rgba(20, 20, 20, 1);
 }
