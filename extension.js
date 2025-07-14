@@ -145,6 +145,7 @@ const TabBar = GObject.registerClass(
             let pressStartY = 0;
             let dragMotionId = null;
             let dragReleaseId = null;
+            let lastReorderedWindow = null; // Rastrear última aba reordenada para evitar loops
             const dragThreshold = 5; // pixels
 
             // Função para atualizar estado
@@ -152,7 +153,58 @@ const TabBar = GObject.registerClass(
                 const oldState = tabState;
                 tabState = newState;
                 const [x, y] = event ? event.get_coords() : [0, 0];
+                
+                // Resetar lastReorderedWindow quando sair do estado de drag
+                if (oldState === 'drag' && newState !== 'drag') {
+                    lastReorderedWindow = null;
+                }
+                
                 console.log(`[State Change] Aba "${window.get_title()}": ${oldState} -> ${newState}`);
+            };
+
+            // Função para encontrar a aba sob o cursor
+            const getTabUnderCursor = (x, y) => {
+                for (const [targetWindow, targetTab] of this.tabs) {
+                    if (targetTab === tab) continue; // Ignorar a própria aba
+                    
+                    const [tabX, tabY] = targetTab.get_transformed_position();
+                    const tabWidth = targetTab.get_width();
+                    const tabHeight = targetTab.get_height();
+                    
+                    // Verificar se está sobre a aba
+                    if (x >= tabX && x <= tabX + tabWidth && y >= tabY && y <= tabY + tabHeight) {
+                        // Calcular se passou da metade da aba
+                        const tabCenterX = tabX + tabWidth / 2;
+                        const passedHalf = x > tabCenterX;
+                        
+                        return { 
+                            window: targetWindow, 
+                            tab: targetTab,
+                            passedHalf: passedHalf
+                        };
+                    }
+                }
+                return null;
+            };
+
+            // Função para reordenar abas
+            const reorderTab = (draggedWindow, targetWindow) => {
+                const children = this._tabContainer.get_children();
+                const draggedTab = this.tabs.get(draggedWindow);
+                const targetTab = this.tabs.get(targetWindow);
+                
+                if (!draggedTab || !targetTab) return;
+                
+                // Remover a aba arrastada do container
+                this._tabContainer.remove_child(draggedTab);
+                
+                // Encontrar a posição da aba alvo
+                const targetIndex = children.indexOf(targetTab);
+                
+                // Inserir a aba arrastada na nova posição
+                this._tabContainer.insert_child_at_index(draggedTab, targetIndex);
+                
+                console.log(`[Reorder] Aba "${draggedWindow.get_title()}" movida para posição da aba "${targetWindow.get_title()}"`);
             };
 
             // Conectar eventos de mouse down
@@ -174,10 +226,26 @@ const TabBar = GObject.registerClass(
                             // Verificar se moveu mais que o threshold
                             if (deltaX > dragThreshold || deltaY > dragThreshold) {
                                 updateState('drag', motionEvent);
+                                // Resetar controle de reordenação ao iniciar novo drag
+                                lastReorderedWindow = null;
+                                // Adicionar classe visual para indicar drag
+                                tab.add_style_class_name('dragging');
                             }
                         } else if (tabState === 'drag') {
-                            // Logar movimento durante o drag
+                            // Durante o drag, verificar se está sobre outra aba
                             const [currentX, currentY] = motionEvent.get_coords();
+                            const tabUnder = getTabUnderCursor(currentX, currentY);
+                            
+                            if (tabUnder && tabUnder.window !== window && tabUnder.passedHalf) {
+                                // Só reordenar se:
+                                // 1. Passou da metade da aba alvo
+                                // 2. Não é a mesma aba da última reordenação (evita loops)
+                                if (lastReorderedWindow !== tabUnder.window) {
+                                    reorderTab(window, tabUnder.window);
+                                    lastReorderedWindow = tabUnder.window;
+                                }
+                            }
+                            
                             console.log(`[Drag Movement] Aba "${window.get_title()}" movendo para (${currentX}, ${currentY})`);
                         }
                         return Clutter.EVENT_PROPAGATE;
@@ -199,6 +267,8 @@ const TabBar = GObject.registerClass(
                             if (tabState === 'drag') {
                                 updateState('up', releaseEvent);
                                 console.log(`[Drag End] Drag finalizado na aba "${window.get_title()}"`);
+                                // Remover classe visual de drag
+                                tab.remove_style_class_name('dragging');
                             } else if (tabState === 'down') {
                                 updateState('click', releaseEvent);
                                 console.log(`[Click] Clique registrado na aba "${window.get_title()}"`);
@@ -226,6 +296,8 @@ const TabBar = GObject.registerClass(
                     if (tabState === 'drag') {
                         updateState('up', event);
                         console.log(`[Drag End Local] Drag finalizado na aba "${window.get_title()}"`);
+                        // Remover classe visual de drag
+                        tab.remove_style_class_name('dragging');
                     } else if (tabState === 'down') {
                         updateState('click', event);
                         console.log(`[Click Local] Clique registrado na aba "${window.get_title()}"`);
@@ -749,6 +821,113 @@ class WindowGroup {
     }
 }
 
+// Manager global para capturar eventos do shell E desktop
+class GlobalShellManager {
+    constructor() {
+        this._globalMouseMotionId = null;
+        this._globalButtonPressId = null;
+        this._globalButtonReleaseId = null;
+        this._mousePollingTimer = null;
+        this._lastMousePosition = { x: -1, y: -1 };
+        this._lastButtonState = null;
+    }
+
+    enable() {
+        console.log('[Global Shell Manager] Habilitando listeners globais');
+        
+        // Listener global de movimento do mouse (para áreas do Shell)
+        this._globalMouseMotionId = global.stage.connect('motion-event', (stage, event) => {
+            const [x, y] = event.get_coords();
+            console.log(`[Global Mouse Motion - Shell] Cursor em (${x}, ${y})`);
+            this._lastMousePosition = { x, y };
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        // Listener global de botão pressionado (para áreas do Shell)
+        this._globalButtonPressId = global.stage.connect('button-press-event', (stage, event) => {
+            const [x, y] = event.get_coords();
+            const button = event.get_button();
+            console.log(`[Global Button Press - Shell] Botão ${button} pressionado em (${x}, ${y})`);
+            this._lastButtonState = { button, pressed: true, x, y };
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        // Listener global de botão solto (para áreas do Shell)
+        this._globalButtonReleaseId = global.stage.connect('button-release-event', (stage, event) => {
+            const [x, y] = event.get_coords();
+            const button = event.get_button();
+            console.log(`[Global Button Release - Shell] Botão ${button} solto em (${x}, ${y})`);
+            this._lastButtonState = { button, pressed: false, x, y };
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        // Polling global para capturar movimento INCLUSIVE no desktop
+        this._mousePollingTimer = setInterval(() => {
+            const [x, y, mask] = global.get_pointer();
+            
+            // Verificar se a posição mudou
+            if (x !== this._lastMousePosition.x || y !== this._lastMousePosition.y) {
+                console.log(`[Global Mouse Motion - Universal] Cursor em (${x}, ${y})`);
+                this._lastMousePosition = { x, y };
+            }
+            
+            // Verificar estado dos botões do mouse
+            const leftPressed = (mask & Clutter.ModifierType.BUTTON1_MASK) !== 0;
+            const middlePressed = (mask & Clutter.ModifierType.BUTTON2_MASK) !== 0;
+            const rightPressed = (mask & Clutter.ModifierType.BUTTON3_MASK) !== 0;
+            
+            // Detectar mudanças de estado dos botões
+            if (leftPressed && (!this._lastButtonState || !this._lastButtonState.pressed || this._lastButtonState.button !== 1)) {
+                console.log(`[Global Button Press - Universal] Botão 1 pressionado em (${x}, ${y})`);
+                this._lastButtonState = { button: 1, pressed: true, x, y };
+            } else if (!leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1) {
+                console.log(`[Global Button Release - Universal] Botão 1 solto em (${x}, ${y})`);
+                this._lastButtonState = { button: 1, pressed: false, x, y };
+            }
+            
+            if (rightPressed && (!this._lastButtonState || !this._lastButtonState.pressed || this._lastButtonState.button !== 3)) {
+                console.log(`[Global Button Press - Universal] Botão 3 pressionado em (${x}, ${y})`);
+                this._lastButtonState = { button: 3, pressed: true, x, y };
+            } else if (!rightPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 3) {
+                console.log(`[Global Button Release - Universal] Botão 3 solto em (${x}, ${y})`);
+                this._lastButtonState = { button: 3, pressed: false, x, y };
+            }
+            
+        }, 16); // ~60 FPS para rastreamento suave
+
+        console.log('[Global Shell Manager] Listeners globais habilitados com sucesso');
+    }
+
+    disable() {
+        console.log('[Global Shell Manager] Desabilitando listeners globais');
+        
+        if (this._globalMouseMotionId) {
+            global.stage.disconnect(this._globalMouseMotionId);
+            this._globalMouseMotionId = null;
+            console.log('[Global Shell Manager] Listener de movimento desconectado');
+        }
+
+        if (this._globalButtonPressId) {
+            global.stage.disconnect(this._globalButtonPressId);
+            this._globalButtonPressId = null;
+            console.log('[Global Shell Manager] Listener de botão press desconectado');
+        }
+
+        if (this._globalButtonReleaseId) {
+            global.stage.disconnect(this._globalButtonReleaseId);
+            this._globalButtonReleaseId = null;
+            console.log('[Global Shell Manager] Listener de botão release desconectado');
+        }
+
+        // Parar polling universal do mouse
+        if (this._mousePollingTimer) {
+            clearInterval(this._mousePollingTimer);
+            this._mousePollingTimer = null;
+            console.log('[Global Shell Manager] Polling universal do mouse desabilitado');
+        }
+    }
+}
+
 // Classe principal para gerenciar o sistema de abas
 class TabManager {
     constructor(extension) {
@@ -885,6 +1064,12 @@ class TabManager {
         // Desconectar sinais
         this._signals.forEach(id => global.display.disconnect(id));
         this._signals = [];
+
+        // Desconectar listener global de movimento do mouse
+        if (this._globalMouseMotionId) {
+            global.stage.disconnect(this._globalMouseMotionId);
+            this._globalMouseMotionId = null;
+        }
 
         // Desconectar eventos de teclado
         if (this._keyPressId) {
@@ -1237,6 +1422,10 @@ export default class AppGroupTabsExtension extends Extension {
         this._tabManager = new TabManager(this);
         this._tabManager.enable();
 
+        // Inicializar o gerenciador global de eventos do shell
+        this._globalShellManager = new GlobalShellManager();
+        this._globalShellManager.enable();
+
         // Adicionar indicador na barra superior
         this._indicator = new Indicator(this._tabManager);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
@@ -1246,6 +1435,11 @@ export default class AppGroupTabsExtension extends Extension {
         if (this._tabManager) {
             this._tabManager.disable();
             this._tabManager = null;
+        }
+
+        if (this._globalShellManager) {
+            this._globalShellManager.disable();
+            this._globalShellManager = null;
         }
 
         if (this._indicator) {
