@@ -167,3 +167,32 @@
     transition-duration: 200ms;
     transition-timing-function: ease-out;
 }
+
+/* ===== ESTILOS DE DRAG-AND-DROP ===== */
+
+/* Clone visual da aba sendo arrastada */
+.tab-dragging {
+    background-color: rgba(53, 132, 228, 0.95);
+    border: 2px solid rgba(53, 132, 228, 1);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    color: white;
+    padding: 8px 16px;
+    min-width: 120px;
+    z-index: 1000;
+    transition: none;
+}
+
+/* Aba original durante o drag (fica semi-transparente) */
+.tab.dragging {
+    opacity: 0.3;
+    transition: opacity 0.2s ease;
+}
+
+/* Clone visual da aba sendo arrastada - tema claro */
+.light-theme .tab-dragging {
+    background-color: rgba(53, 132, 228, 0.95);
+    border: 2px solid rgba(53, 132, 228, 1);
+    color: white;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}

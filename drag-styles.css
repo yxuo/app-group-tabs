@@ -1,0 +1,25 @@
+/* Estilos para drag visual das abas */
+
+.tab-dragging {
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 2px solid #3584e4;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: none;
+    z-index: 1000;
+}
+
+.tab.dragging {
+    opacity: 0.4;
+    transition: opacity 0.2s ease;
+}
+
+.tab:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    transition: background-color 0.2s ease;
+}
+
+.tab.active {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-bottom: 2px solid #3584e4;
+}
