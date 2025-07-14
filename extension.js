@@ -208,7 +208,7 @@ const TabBar = GObject.registerClass(
             let dragOffsetY = 0;
             let lastReorderTime = 0; // Timestamp da última reordenação
             let lastCursorX = 0; // Última posição X do cursor para detectar direção
-            const dragThreshold = 5; // pixels
+            const dragThreshold = 15; // pixels
             const reorderCooldown = 150; // milliseconds entre reordenações
 
             // Função para criar clone visual da aba
@@ -280,19 +280,34 @@ const TabBar = GObject.registerClass(
             };
 
             // Função para atualizar posição do clone
-            const updateDragClone = (cursorX, cursorY) => {
+            const updateDragClone = (cursorX, cursorY, restrictToTabBar = false) => {
                 if (!dragClone) return;
 
                 // Buffer invisível
                 const buffer = 800;
 
-                // Atualizar posição do clone mantendo o buffer
-                const cloneX = cursorX - dragOffsetX - buffer - 2;
-                const cloneY = cursorY - dragOffsetY - buffer - 4;
+                let finalX = cursorX - dragOffsetX - buffer - 2;
+                let finalY = cursorY - dragOffsetY - buffer - 4;
 
-                dragClone.set_position(cloneX, cloneY);
+                if (restrictToTabBar) {
+                    // Obter dimensões da barra de abas e da aba
+                    const [tabBarX, tabBarY] = this.get_transformed_position();
+                    const tabBarWidth = this.get_width();
+                    const tabBarHeight = this.get_height();
+                    const tabWidth = tab.get_width();
 
-                // console.log(`[Clone Update] Clone reposicionado para (${cloneX}, ${cloneY}) seguindo cursor em (${cursorX}, ${cursorY})`);
+                    // Restringir X com margem de 4px nas bordas
+                    const minX = tabBarX + 4 - buffer - 2;
+                    const maxX = tabBarX + tabBarWidth - tabWidth - 4 - buffer - 2 - 48;
+
+                    if (finalX < minX) finalX = minX;
+                    if (finalX > maxX) finalX = maxX;
+
+                    // Y é fixo, não permite mover para cima ou para baixo
+                    finalY = tabBarY - buffer + 1;
+                }
+
+                dragClone.set_position(finalX, finalY);
             };
 
             // Função para destruir clone visual
@@ -415,7 +430,20 @@ const TabBar = GObject.registerClass(
                         } else if (tabState === 'drag') {
                             // Durante o drag, atualizar posição do clone
                             const [currentX, currentY] = motionEvent.get_coords();
-                            updateDragClone(currentX, currentY);
+
+                            // Verificar se está sobre a barra de abas para reordenação ou fora para agrupamento
+                            const [tabBarX, tabBarY] = this.get_transformed_position();
+                            const tabBarWidth = this.get_width();
+                            const tabBarHeight = this.get_height();
+
+                            // Verificar se o cursor está dentro da área da barra de abas
+                            const isOverTabBar = currentX >= tabBarX && currentX <= tabBarX + tabBarWidth &&
+                                                currentY >= tabBarY && currentY <= tabBarY + tabBarHeight;
+
+                            // Restringir movimento à barra se estiver sobre ela
+                            updateDragClone(currentX, currentY, isOverTabBar);
+
+                            console.log(`[Drag Movement] Cursor: (${currentX}, ${currentY}) | Barra: (${tabBarX}, ${tabBarY}, ${tabBarWidth}x${tabBarHeight}) | Sobre barra: ${isOverTabBar}`);
 
                             // Verificar se o state global não é 'drag'
                             const gsm = this.group.manager.extension._globalShellManager;
@@ -425,14 +453,6 @@ const TabBar = GObject.registerClass(
                                 updateState('up', releaseEvent);
                                 tab._updateTabStyles();
                             }
-
-                            // Verificar se está sobre a barra de abas para reordenação ou fora para agrupamento
-                            const [tabBarX, tabBarY] = this.get_transformed_position();
-                            const tabBarWidth = this.get_width();
-                            const tabBarHeight = this.get_height();
-
-                            const isOverTabBar = currentX >= tabBarX && currentX <= tabBarX + tabBarWidth &&
-                                currentY >= tabBarY && currentY <= tabBarY + tabBarHeight;
 
                             if (isOverTabBar) {
                                 // Lógica de reordenação dentro da barra (código existente)
@@ -1351,7 +1371,7 @@ class GlobalShellManager {
         this._mousePollingTimer = null;
         this._lastMousePosition = { x: -1, y: -1 };
         this._lastButtonState = null;
-        this._dragThreshold = 5;
+        this._dragThreshold = 15;
         this._activeDragClones = new Set(); // Rastrear clones ativos
         this._activeContextMenus = new Set(); // Rastrear menus de contexto ativos
     }
