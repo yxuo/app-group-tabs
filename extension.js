@@ -247,7 +247,7 @@ const TabBar = GObject.registerClass(
                     Main.layoutManager.removeChrome(dragClone);
                     try {
                         dragClone.destroy();
-                    } catch (e) {}
+                    } catch (e) { }
                     dragClone = null;
                     console.log(`[Drag Clone] Clone destruído para aba "${window.get_title()}"`);
                 }
@@ -1009,12 +1009,12 @@ class GlobalShellManager {
 
                 // Verificar se moveu mais que o threshold para considerar drag
                 if (deltaX > this._dragThreshold || deltaY > this._dragThreshold) {
-                    this._lastButtonState = { 
-                        button: this._lastButtonState.button, 
-                        pressed: this._lastButtonState.pressed, 
-                        x, 
-                        y, 
-                        event: 'drag' 
+                    this._lastButtonState = {
+                        button: this._lastButtonState.button,
+                        pressed: this._lastButtonState.pressed,
+                        x,
+                        y,
+                        event: 'drag'
                     };
                     console.log(`[Global Shell Manager] Estado mudou para 'drag' em (${x}, ${y})`);
                 }
@@ -1039,7 +1039,7 @@ class GlobalShellManager {
             const [x, y] = event.get_coords();
             const button = event.get_button();
             console.log(`[Global Button Release - Shell] Botão ${button} solto em (${x}, ${y})`);
-            if (this._lastButtonState?.button === button && 
+            if (this._lastButtonState?.button === button &&
                 (this._lastButtonState?.event === 'down' || this._lastButtonState?.event === 'drag')) {
                 this._lastButtonState = { button, pressed: false, x, y, event: 'up' };
                 console.log(`[Global Shell Manager] Estado mudou para 'up' em (${x}, ${y})`);
