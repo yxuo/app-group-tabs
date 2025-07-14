@@ -72,11 +72,11 @@ const Indicator = GObject.registerClass(
 
             // Item para alternar grupos automáticos
             this.startGroupsItem = new PopupMenu.PopupSwitchMenuItem(
-                _('Iniciar Janelas com Grupos'),
-                this.tabManager.startWithGroups
+                _('Grupos com uma Janela'),
+                this.tabManager.singleWindowGroups
             );
             this.startGroupsItem.connect('toggled', (item) => {
-                this.tabManager.setStartWithGroups(item.state);
+                this.tabManager.setSingleWindowGroups(item.state);
             });
             this.menu.addMenuItem(this.startGroupsItem);
 
@@ -761,14 +761,20 @@ const TabBar = GObject.registerClass(
             // Remover a janela do grupo atual
             currentGroup.removeWindow(window);
 
-            // Criar um novo grupo individual para a janela
-            const newGroup = new WindowGroup(manager);
-            manager.groups.add(newGroup);
+            // Criar um novo grupo individual apenas se a configuração estiver habilitada
+            if (manager.singleWindowGroups) {
+                const newGroup = new WindowGroup(manager);
+                manager.groups.add(newGroup);
 
-            newGroup.addWindow(window);
-            manager.windowGroups.set(window, newGroup);
+                newGroup.addWindow(window);
+                manager.windowGroups.set(window, newGroup);
 
-            console.log(`[Tab Separation] Janela "${window.get_title()}" separada em novo grupo`);
+                console.log(`[Tab Separation] Janela "${window.get_title()}" separada em novo grupo`);
+            } else {
+                // Apenas remover do mapeamento de grupos, deixando a janela órfã
+                manager.windowGroups.delete(window);
+                console.log(`[Tab Separation] Janela "${window.get_title()}" separada e deixada sem grupo`);
+            }
         }
 
         destroy() {
@@ -1376,8 +1382,13 @@ class GlobalShellManager {
                 console.log(`[Global Button Press - Universal] Botão 1 pressionado em (${x}, ${y})`);
                 // Destruir clones ativos quando novo botão for pressionado
                 this.destroyAllDragClones();
-                // Fechar menus de contexto ativos
-                this.closeAllContextMenus();
+                // Fechar menus de contexto ativos - verifica se o clique está dentro de algum menu
+                if (this._activeContextMenus.size > 0) {
+                    const isInsideMenu = this._isClickInsideActiveMenu(x, y);
+                    if (!isInsideMenu) {
+                        this.closeAllContextMenus();
+                    } 
+                }
                 this._lastButtonState = { button: 1, pressed: true, x, y, event: 'down' };
             } else if (!leftPressed && this._lastButtonState && this._lastButtonState.pressed && this._lastButtonState.button === 1) {
                 console.log(`[Global Button Release - Universal] Botão 1 solto em (${x}, ${y})`);
@@ -1551,14 +1562,14 @@ class TabManager {
         // Carregar configurações
         this._settings = extension.getSettings();
         this.requireCtrl = this._settings.get_boolean('require-ctrl');
-        this.startWithGroups = this._settings.get_boolean('start-with-groups');
+        this.singleWindowGroups = this._settings.get_boolean('start-with-groups');
 
         // Conectar mudanças de configuração
         this._settingsId = this._settings.connect('changed::require-ctrl', () => {
             this.requireCtrl = this._settings.get_boolean('require-ctrl');
         });
         this._startGroupsSettingsId = this._settings.connect('changed::start-with-groups', () => {
-            this.startWithGroups = this._settings.get_boolean('start-with-groups');
+            this.singleWindowGroups = this._settings.get_boolean('start-with-groups');
         });
     }
 
@@ -1624,7 +1635,7 @@ class TabManager {
         });
 
         // Processar janelas existentes e criar grupos individuais se configurado
-        if (this.startWithGroups) {
+        if (this.singleWindowGroups) {
             global.get_window_actors().forEach(actor => {
                 const window = actor.get_meta_window();
                 if (window && window.window_type === Meta.WindowType.NORMAL) {
@@ -1728,7 +1739,7 @@ class TabManager {
         if (window.window_type !== Meta.WindowType.NORMAL) return;
 
         // Criar grupo individual apenas se a configuração estiver habilitada
-        if (this.startWithGroups) {
+        if (this.singleWindowGroups) {
             this._createIndividualGroup(window);
         }
 
@@ -1937,13 +1948,13 @@ class TabManager {
         }
     }
 
-    setStartWithGroups(value) {
-        this.startWithGroups = value;
+    setSingleWindowGroups(value) {
+        this.singleWindowGroups = value;
         // Salvar nas configurações
         this._settings.set_boolean('start-with-groups', value);
 
         // Se habilitou grupos automáticos, criar grupos para janelas sem grupo
-        if (this.startWithGroups) {
+        if (this.singleWindowGroups) {
             global.get_window_actors().forEach(actor => {
                 const window = actor.get_meta_window();
                 if (window &&
@@ -1952,8 +1963,14 @@ class TabManager {
                     this._createIndividualGroup(window);
                 }
             });
+        } else {
+            // Se desabilitou, remover grupos com apenas uma janela
+            this.groups.forEach(group => {
+                if (group.windows.length === 1) {
+                    this._removeGroup(group);
+                }
+            });
         }
-        // Se desabilitou, não remove grupos existentes - apenas afeta novas janelas
     }
 
     // Métodos para gerenciar o modo de visualização de abas tiled
